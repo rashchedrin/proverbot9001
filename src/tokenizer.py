@@ -3,18 +3,19 @@
 import re
 import math
 from typing import Dict, List, Tuple, Callable, Union, Iterable, cast, Set
+from abc import ABCMeta, abstractmethod
 
-class Tokenizer:
+class Tokenizer(metaclass=ABCMeta):
+    @abstractmethod
     def toTokenList(self, string : str) -> List[int]:
-        assert False, "Can't use base class, must override method"
         pass
+    @abstractmethod
     def toString(self, tokenlist : List[int]) -> str:
-        assert False, "Can't use base class, must override method"
         pass
     def freezeTokenList(self):
         pass
+    @abstractmethod
     def numTokens(self) -> int:
-        assert False, "Can't use base class, must override method"
         pass
 
 def get_words(string : str) -> List[str]:
