@@ -6,7 +6,7 @@ from format import read_tuple
 from models.components import SimpleEmbedding
 import re
 
-from typing import Tuple, List, Callable
+from typing import Tuple, List, Callable, Optional
 from util import *
 from context_filter import ContextFilter
 from serapi_instance import get_stem
@@ -30,7 +30,7 @@ def extend(vector : List[int], length : int):
     assert len(vector) <= length
     return vector + [0] * (length - len(vector))
 
-def read_text_data(data_path : str,  max_size:int=None) -> RawDataset:
+def read_text_data(data_path : str,  max_size:Optional[int]=None) -> RawDataset:
     data_set = []
     with open(data_path, mode="r") as data_file:
         t = read_tuple(data_file)
