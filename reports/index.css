@@ -1,7 +1,7 @@
 
 body {
     width: auto;
-    max-width: 850px;
+    max-width: 1000px;
     margin: 1em auto;
     position: relative;
     text-rendering: optimizeLegibility;
@@ -36,6 +36,9 @@ svg {
     display: block;
     margin: auto;
 }
+p.checkbox-label {
+    font-weight: 700;
+}
 path.graphline.Unknown {
     stroke: black;
 }
@@ -55,12 +58,18 @@ path.graphline.k-nearest {
 path.graphline.k-nearest {
     stroke: steelblue;
 }
+p.checkbox-label.k-nearest {
+    color: steelblue;
+}
 .dot.wordbagclass{
     fill: green;
     stroke: green;
 }
 path.graphline.wordbagclass{
     stroke: green;
+}
+p.checkbox-label.wordbagclass {
+    color: green;
 }
 path.graphline.encclass {
     stroke: magenta;
@@ -69,6 +78,19 @@ path.graphline.encclass {
     stroke: magenta;
     fill: magenta;
 }
+p.checkbox-label.encclass{
+    color: magenta;
+}
+path.graphline.autoclass{
+    stroke: darkorange;
+}
+.dot.autoclass {
+    stroke: darkorange;
+    fill: darkorange;
+}
+p.checkbox-label.autoclass {
+    color: darkorange;
+}
 path.graphline.dnnclass {
     stroke: darkgoldenrod;
 }
@@ -76,7 +98,9 @@ path.graphline.dnnclass {
     stroke: darkgoldenrod;
     fill: darkgoldenrod;
 }
-
+p.checkbox-label.dnnclass {
+    color: darkgoldenrod;
+}
 
 .dot {
     cursor: pointer;
@@ -93,7 +117,7 @@ p.checkbox-label {
 p.control-label {
     display: inline;
     margin: 1em;
-    margin-left: 10em;
+    margin-left: 3em;
 }
 div.checkbox-box {
     height: 3em;
