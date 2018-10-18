@@ -63,7 +63,6 @@ def read_text_data_worker__(lines : List[str]) -> RawDataset:
     return list(worker_generator())
 
 def read_text_data(data_path : str,  max_size:Optional[int]=None) -> RawDataset:
-    data_set = []
     with multiprocessing.Pool(None) as pool:
         line_chunks = file_chunks(data_path, 32768)
         data_chunks = pool.imap_unordered(read_text_data_worker__, line_chunks)
@@ -72,9 +71,10 @@ def read_text_data(data_path : str,  max_size:Optional[int]=None) -> RawDataset:
         return result
 
 def filter_data(data : RawDataset, pair_filter : ContextFilter) -> RawDataset:
+    data_list = list(data)
     return ((hyps, goal, tactic)
             for ((hyps, goal, tactic), (next_hyps, next_goal, next_tactic)) in
-            zip(data, data[1:])
+            zip(data_list, data_list[1:])
             if pair_filter({"goal": goal, "hyps" : hyps}, tactic,
                            {"goal": next_goal, "hyps" : next_hyps}))
 

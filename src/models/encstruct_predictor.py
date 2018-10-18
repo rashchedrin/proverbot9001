@@ -4,6 +4,7 @@ import argparse
 import time
 import threading
 from typing import Dict, List, Union, Any, Tuple, Iterable, cast, Callable
+import itertools
 from itertools import takewhile
 
 from models.encdecrnn_predictor import inputFromSentence
@@ -196,14 +197,17 @@ def encode_seq_structural_data(data : RawDataset,
                                num_keywords : int,
                                num_reserved_tokens: int) -> \
                                Tuple[StructDataset, Tokenizer, SimpleEmbedding]:
+    embedding = SimpleEmbedding()
+
     hyps_and_goals = [hyp_or_goal
-                      for hyp_and_goal in [hyps + [goal] for hyps, goal, tactic in data]
+                      for hyp_and_goal in [zip(hyps + [goal],
+                                               itertools.repeat(
+                                                   embedding.encode_token(tactic)))
+                                           for hyps, goal, tactic in data]
                       for hyp_or_goal in hyp_and_goal]
     context_tokenizer = make_keyword_tokenizer_relevance(hyps_and_goals,
                                                          context_tokenizer_type,
-                                               num_keywords, num_reserved_tokens)
-    embedding = SimpleEmbedding()
-
+                                                         num_keywords, num_reserved_tokens)
     encodedData = []
     for hyps, goal, tactic in data:
         stem, rest = serapi_instance.split_tactic(tactic)
@@ -230,10 +234,10 @@ def main(arg_list : List[str]) -> None:
     args = argparser.parse_args(arg_list)
     print("Reading dataset...")
 
-    raw_data = read_text_data(args.scrape_file)
+    raw_data = list(read_text_data(args.scrape_file))
     print("Read {} raw input-output pairs".format(len(raw_data)))
     print("Filtering data based on predicate...")
-    filtered_data = filter_data(raw_data, get_context_filter(args.context_filter))
+    filtered_data = list(filter_data(raw_data, get_context_filter(args.context_filter)))
 
     print("{} input-output pairs left".format(len(filtered_data)))
     print("Encoding data...")
