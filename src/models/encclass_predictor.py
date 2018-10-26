@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 
-import signal
 import argparse
 import time
-import sys
 import threading
 import math
 
