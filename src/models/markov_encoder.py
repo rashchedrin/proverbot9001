@@ -252,6 +252,9 @@ class HiddenMarkovModel:
                 self.transition_probabilities, \
                 self.emission_probabilities \
                 = new_initial, new_transition, new_emission
+    def encoding_length(self) -> int:
+        return (self.num_states+1) + (self.num_states+1)**2 + \
+            (self.num_states+1) * (self.num_emissions+1)
     def encode(self, sequence : List[int]) -> List[float]:
         sequence = sequence + [self.num_emissions]
         stateLikelyhoods = self.individualStateLikelyhoods(sequence)
