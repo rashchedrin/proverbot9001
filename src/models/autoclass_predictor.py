@@ -21,7 +21,7 @@ from context_filter import get_context_filter
 from tokenizer import tokenizers
 
 from util import *
-from models.components import SimpleEmbedding
+from models.components import SimpleEmbedding, ClassifierDNN
 from models.tactic_predictor import TacticPredictor
 from models.term_autoencoder import EncoderRNN
 from serapi_instance import get_stem
@@ -135,33 +135,6 @@ class AutoClassPredictor(TacticPredictor):
     def getOptions(self) -> List[Tuple[str, str]]:
         return self.options
 
-class ClassifierDNN(nn.Module):
-    def __init__(self, input_size : int, hidden_size : int, output_vocab_size : int,
-                 num_layers : int, batch_size : int=1) -> None:
-        super(ClassifierDNN, self).__init__()
-        self.num_layers = num_layers
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.batch_size = batch_size
-        self.in_layer = maybe_cuda(nn.Linear(input_size, hidden_size))
-        self.layers = [maybe_cuda(nn.Linear(hidden_size, hidden_size))
-                       for _ in range(1, num_layers)]
-        self.out_layer = maybe_cuda(nn.Linear(hidden_size, output_vocab_size))
-        self.softmax = maybe_cuda(nn.LogSoftmax(dim=1))
-        pass
-
-    def forward(self, input : torch.FloatTensor) -> torch.FloatTensor:
-        layer_values = input.view(self.batch_size, -1)
-        layer_values = self.in_layer(layer_values)
-        for i in range(self.num_layers - 1):
-            layer_values = F.relu(layer_values)
-            layer_values = self.layers[i](layer_values)
-        return self.softmax(self.out_layer(layer_values))
-
-    def run(self, sentence : torch.FloatTensor) -> torch.FloatTensor:
-        result = self(sentence)
-        return result
-
 class Checkpoint(NamedTuple):
     classifier_state : Dict[Any, Any]
     autoencoder_state : Dict[Any, Any]
@@ -209,8 +182,9 @@ def train(dataset : ClassifySequenceDataset,
             for optimizer in optimizers:
                 optimizer.zero_grad()
 
-            # Run the classifier on pre-encoded vectors
+            # Encode vectors in input batch
             encoded_input_batch = autoencoder.run(cast(torch.LongTensor, input_batch))
+            # Run the classifier on encoded vectors
             prediction_distribution = classifier.run(encoded_input_batch)
 
             # Get the loss
