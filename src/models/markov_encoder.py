@@ -294,6 +294,17 @@ def sample_distribution(distribution : List[float]):
         else:
             continous_sample -= probability
 
+def echo_format(arg):
+    frame = inspect.currentframe()
+    try:
+        context = inspect.getframeinfo(frame.f_back).code_context
+        caller_lines = ''.join([line.strip() for line in context])
+        m = re.search(r'echo_format\s*\((.+?)\)$', caller_lines)
+        if m:
+            caller_lines = m.group(1)
+        return "{}: {}".format(caller_lines, arg)
+    finally:
+        del frame
 def echo(arg):
     if not debug:
         return
