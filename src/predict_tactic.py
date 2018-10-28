@@ -10,6 +10,7 @@ from models import encclass_predictor
 from models import dnnclass_predictor
 from models import k_nearest_predictor
 from models import autoclass_predictor
+from models import hmmencclass_predictor
 
 predictors = {
     'encdecrnn' : encdecrnn_predictor.EncDecRNNPredictor,
@@ -19,6 +20,7 @@ predictors = {
     'wordbagclass' : wordbagclass_predictor.WordBagClassifyPredictor,
     'k-nearest' : k_nearest_predictor.KNNPredictor,
     'autoclass' : autoclass_predictor.AutoClassPredictor,
+    'hmmencclass' : hmmencclass_predictor.HMMEncoderClassifier,
 }
 
 def loadPredictor(options : Dict[str, Union[int, str]], predictor_type) -> TacticPredictor:
