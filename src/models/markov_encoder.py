@@ -5,8 +5,12 @@ import itertools
 # from graphviz import Digraph
 import inspect
 import re
+import functools
 
 from typing import List, Iterable, Tuple, Dict
+
+from util import *
+import multiprocessing
 
 eps = 0.001
 debug = False
@@ -139,13 +143,17 @@ class HiddenMarkovModel:
             probabilities.append({key : value / total_prob for (key, value) in unnormalized_probabilities.items()})
 
         return probabilities
-    def reestimate(self, sequences : List[List[int]]) -> Tuple[List[float],
-                                                               Dict[Tuple[int, int], float],
-                                                               Dict[Tuple[int, int], float]]:
-        sequenceStateLikelyhoods = [self.individualStateLikelyhoods(seq)
-                                    for seq in sequences]
-        sequenceTransitionLikelyhoods = [self.expectedTransitionLikelyhoods(seq)
-                                         for seq in sequences]
+    def reestimate(self, sequences : List[List[int]]) -> \
+        Tuple[List[float], Dict[Tuple[int, int], float], Dict[Tuple[int, int], float]]:
+        with multiprocessing.Pool(None) as pool:
+            sequenceStateLikelyhoods = \
+                list(pool.imap_unordered(
+                    functools.partial(listmap, self.individualStateLikelyhoods),
+                    chunks(sequences, 32768)))
+            sequenceTransitionLikelyhoods = \
+                list(pool.imap_unordered(
+                    functools.partial(listmap, self.expectedTransitionLikelyhoods),
+                    chunks(sequences, 32768)))
         new_initial = [sum(likelyhoods) / len(likelyhoods) for likelyhoods in
                        zip(*[stateLikelyhood[0] for stateLikelyhood in
                              sequenceStateLikelyhoods])]
