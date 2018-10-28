@@ -154,26 +154,35 @@ class HiddenMarkovModel:
                 list(pool.imap_unordered(
                     functools.partial(listmap, self.expectedTransitionLikelyhoods),
                     chunks(sequences, 32768)))
+        num_states_visited_total = sum([len(seq) for seq in sequences])
         new_initial = [sum(likelyhoods) / len(likelyhoods) for likelyhoods in
                        zip(*[stateLikelyhood[0] for stateLikelyhood in
                              sequenceStateLikelyhoods])]
-        turing_estimated = 0
-        new_transitions = {(state_num_i, state_num_j) :
-                           sum([sum([transitionLikelyhood[(state_num_i, state_num_j)]
-                                     for transitionLikelyhood in transitionLikelyhoods])
-                                for transitionLikelyhoods in sequenceTransitionLikelyhoods]) /
-                           sum([sum([stateLikelyhood[state_num_i]
-                                     for stateLikelyhood in stateLikelyhoods])
-                                for stateLikelyhoods in sequenceStateLikelyhoods])
-                           for state_num_i, state_num_j in
-                           self.transition_probabilities}
+        new_transitions = {}
+        for state_num_i in range(self.num_states+1):
+            total_likelyhood_i = sum([sum([stateLikelyhood[state_num_i]
+                                           for stateLikelyhood in stateLikelyhoods])
+                                      for stateLikelyhoods in sequenceStateLikelyhoods])
+            assert total_likelyhood_i > 0
+            expected_times_in_state = num_states_visited_total * total_likelyhood_i
+            smoothing_factor = 1 / expected_times_in_state
+            for state_num_j in range(self.num_states+1):
+                transition_likelyhood_i_j = sum([sum([transitionLikelyhood
+                                                      [(state_num_i, state_num_j)]
+                                                      for transitionLikelyhood
+                                                      in transitionLikelyhoods])
+                                                 for transitionLikelyhoods in
+                                                 sequenceTransitionLikelyhoods])
+                new_transitions[(state_num_i, state_num_j)] = \
+                    (transitionLikelyhod_i_j + smoothing_factor) / \
+                    (total_likelyhood_i + smoothing_factor)
 
         emission_probabilities : List[List[float]] = []
-        num_states_visited_total = sum([len(seq) for seq in sequences])
         for state_num in range(self.num_states+1):
             total_state_likelyhood = \
                 sum([sum([t_likelyhood[state_num] for t_likelyhood in stateLikelyhoods])
                      for stateLikelyhoods in sequenceStateLikelyhoods])
+            assert total_state_likelyhood > 0
             expected_times_in_state = num_states_visited_total * total_state_likelyhood
             emission_probabilities.append([])
             for emission in range(self.num_emissions+1):
@@ -187,11 +196,14 @@ class HiddenMarkovModel:
                              in zip(list(seq_ts), list(stateLikelyhoods_t))])
                     emission_likelyhood_in_state += \
                         emission_likelyhood_at_t_in_state
+                assert emission_likelyhood_in_state > 0
                 smoothing_factor = 1 / expected_times_in_state
-                emission_probabilities[-1].append(
-                    (emission_likelyhood_in_state + smoothing_factor)
-                    /
-                    (total_state_likelyhood + smoothing_factor))
+                new_emission_prob = ((emission_likelyhood_in_state + smoothing_factor)
+                                     /
+                                     (total_state_likelyhood + smoothing_factor))
+                assert new_emission_prob > 0
+
+                emission_probabilities[-1].append(new_emission_prob)
 
         new_emission = {(state_num, emission) :
                         emission_probabilities[state_num][emission]
