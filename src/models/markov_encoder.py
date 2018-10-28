@@ -120,8 +120,8 @@ class HiddenMarkovModel:
 
             total_prob = sum(unnormalized_probabilities)
             assert total_prob > 0, "Can't run on a sequence with zero probability in existing model!"
-            probabilities.append([unnormalized_prob / total_prob for
-                                  unnormalized_prob in unnormalized_probabilities])
+            probabilities.append([unnormalized_prob / total_prob if total_prob > 0 else 0
+                                  for unnormalized_prob in unnormalized_probabilities])
 
         return probabilities
 
