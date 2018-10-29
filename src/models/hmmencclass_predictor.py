@@ -253,7 +253,8 @@ def main(arg_list : List[str]) -> None:
     curtime = time.time()
     print("Training encoder...", end="")
     sys.stdout.flush()
-    encoder.train(tokenized_data)
+    truncated_data = [seq[:args.max_length] for seq in tokenized_data]
+    encoder.train(truncated_data)
     print(" {:.2f}s".format(time.time() - curtime))
 
     embedding = SimpleEmbedding()
