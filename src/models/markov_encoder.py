@@ -147,13 +147,13 @@ class HiddenMarkovModel:
         Tuple[List[float], Dict[Tuple[int, int], float], Dict[Tuple[int, int], float]]:
         with multiprocessing.Pool(None) as pool:
             sequenceStateLikelyhoods = \
-                list(pool.imap_unordered(
+                list(itertools.chain.from_iterable(pool.imap_unordered(
                     functools.partial(listmap, self.individualStateLikelyhoods),
-                    chunks(sequences, 32768)))
+                    chunks(sequences, 32768))))
             sequenceTransitionLikelyhoods = \
-                list(pool.imap_unordered(
+                list(itertools.chain.from_iterable(pool.imap_unordered(
                     functools.partial(listmap, self.expectedTransitionLikelyhoods),
-                    chunks(sequences, 32768)))
+                    chunks(sequences, 32768))))
         num_states_visited_total = sum([len(seq) for seq in sequences])
         new_initial = [sum(likelyhoods) / len(likelyhoods) for likelyhoods in
                        zip(*[stateLikelyhood[0] for stateLikelyhood in
