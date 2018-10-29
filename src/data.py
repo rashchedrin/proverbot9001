@@ -5,13 +5,12 @@ import itertools
 import multiprocessing
 
 from tokenizer import Tokenizer, TokenizerState, \
-    get_topk_keywords, get_relevant_k_keywords, \
-    make_keyword_tokenizer_relevance, make_keyword_tokenizer_topk, tokenizers
+    get_topk_keywords, get_relevant_k_keywords, tokenizers
 from format import read_tuple
 from models.components import SimpleEmbedding
 import re
 
-from typing import Tuple, List, Callable
+from typing import Tuple, List, Callable, Optional
 from util import *
 from context_filter import ContextFilter
 from serapi_instance import get_stem
