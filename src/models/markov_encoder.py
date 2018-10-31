@@ -237,10 +237,10 @@ class HiddenMarkovModel:
               num_threads : Optional[int] = None) -> None:
         for i in range(100):
             new_initial, new_transition, new_emission = \
-                self.reestimate([seq + [self.num_emissions] for seq in data])
             if new_initial == self.initial_probabilities and \
                new_transition == self.transition_probabilities and \
                new_emission == self.emission_probabilities:
+                self.reestimate([seq + [self.num_emissions] for seq in data], num_threads)
                 break
             self.initial_probabilities, \
                 self.transition_probabilities, \
