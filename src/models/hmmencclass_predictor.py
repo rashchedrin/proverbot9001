@@ -224,8 +224,12 @@ def main(arg_list : List[str]) -> None:
                         default=128, type=int)
     parser.add_argument("--encoder-max-terms", dest="encoder_max_terms",
                         default=None, type=int)
+    parser.add_argument("--hmm-weightsfile", dest="hmm_weightsfile",
+                        default=None, type=str)
     parser.add_argument("--num-threads", "-j", dest="num_threads",
                         default=None, type=int)
+    parser.add_argument("--train-encoder-only", dest="train_encoder_only",
+                        default=False, action='store_const', const=True)
     args = parser.parse_args(arg_list)
     if not args.num_hidden_states:
         args.num_hidden_states = args.num_keywords
@@ -237,6 +241,7 @@ def main(arg_list : List[str]) -> None:
     filtered_data = list(data.filter_data(raw_data,
                                           get_context_filter(args.context_filter)))
     print("{} input-output pairs left".format(len(filtered_data)))
+
     print("Extracting all terms...")
     term_strings = list(itertools.chain.from_iterable(
         [[hyp.split(":")[1].strip() for hyp in hyps] + [goal]
@@ -250,38 +255,58 @@ def main(arg_list : List[str]) -> None:
                                                args.num_keywords, 0)
     print(" {:.2f}s".format(time.time() - curtime))
 
-    curtime = time.time()
-    print("Tokenizing {} strings...".format(len(term_strings)), end="")
-    sys.stdout.flush()
-    with multiprocessing.Pool(None) as pool:
-        tokenized_data_chunks = pool.imap_unordered(functools.partial(
-            use_tokenizer, tokenizer),
-                                                    chunks(term_strings, 32768))
-        tokenized_data = list(itertools.chain.from_iterable(tokenized_data_chunks))
-    print(" {:.2f}s".format(time.time() - curtime))
+    if args.hmm_weightsfile:
+        hmm_weights = torch.load(args.hmm_weightsfile)
+        assert hmm_weights['hmm-encoder']
 
-    for seq in tokenized_data:
-        assert seq[0] < args.num_keywords + 1
+        encoder = hmm_weights['hmm-encoder']
+        args.max_length = hmm_weights['max-length']
+        args.num_hidden_states = hmm_weights['num-hidden-states']
+        args.num_keywords = hmm_weights['num-keywords']
+        print("Loaded existing hmm encoder from {}".format(args.hmm_weightsfile))
+    else:
+        curtime = time.time()
+        print("Tokenizing {} strings...".format(len(term_strings)), end="")
+        sys.stdout.flush()
+        with multiprocessing.Pool(args.num_threads) as pool:
+            tokenized_data_chunks = pool.imap_unordered(functools.partial(
+                use_tokenizer, tokenizer),
+                                                        chunks(term_strings, 32768))
+            tokenized_data = list(itertools.chain.from_iterable(tokenized_data_chunks))
+        print(" {:.2f}s".format(time.time() - curtime))
 
-    encoder = HiddenMarkovModel(args.num_hidden_states, args.num_keywords + 1)
+        for seq in tokenized_data:
+            assert seq[0] < args.num_keywords + 1
 
-    curtime = time.time()
-    print("Training encoder...")
-    sys.stdout.flush()
-    truncated_data = [seq[:args.max_length] for seq in tokenized_data]
-    if args.encoder_max_terms:
-        truncated_data = truncated_data[:args.encoder_max_terms]
-    encoder.train(truncated_data)
-    print("Total: {:.2f}s".format(time.time() - curtime))
+        encoder = HiddenMarkovModel(args.num_hidden_states, args.num_keywords + 1)
+
+        curtime = time.time()
+        print("Training encoder...")
+        sys.stdout.flush()
+        truncated_data = tokenized_data
+        if args.max_length:
+            truncated_data = [seq[:args.max_length] for seq in tokenized_data]
+        if args.encoder_max_terms:
+            truncated_data = truncated_data[:args.encoder_max_terms]
+        encoder.train(truncated_data, args.num_threads)
+        print("Total: {:.2f}s".format(time.time() - curtime))
+
+        if args.train_encoder_only:
+            with open(args.save_file, 'wb') as f:
+                torch.save({'hmm-encoder': encoder,
+                            'max-length': args.max_length,
+                            'num-hidden-states':args.num_hidden_states,
+                            'num-keywords': args.num_keywords})
+            return
 
     embedding = SimpleEmbedding()
 
     curtime = time.time()
     print("Tokenizing/encoding data pairs...", end="")
     sys.stdout.flush()
-    with multiprocessing.Pool(None) as pool:
+    with multiprocessing.Pool(args.num_threads) as pool:
         dataset = list(itertools.chain.from_iterable(pool.imap_unordered(
-            functools.partial(encode_point_batch, encoder, tokenizer),
+            functools.partial(encode_point_batch, encoder, tokenizer, args.max_length),
             chunks([(goal, embedding.encode_token(get_stem(tactic)))
                     for hyps, goal, tactic in filtered_data],
                    math.ceil(len(filtered_data)/100)))))
@@ -300,6 +325,7 @@ def main(arg_list : List[str]) -> None:
             'num-keywords' : args.num_keywords,
             'tokenizer-name' : args.tokenizer,
             'num-hidden-states' : args.num_hidden_states,
+            'max-length' : args.max_length,
             # Classifier parameters
             'num-decoder-layers' : args.num_classifier_layers,
             'decoder-hidden-size' : args.classifier_hidden_size,
