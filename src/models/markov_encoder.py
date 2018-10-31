@@ -252,26 +252,34 @@ class HiddenMarkovModel:
     def encode(self, sequence : List[int]) -> List[float]:
         sequence = sequence + [self.num_emissions]
         stateLikelyhoods = self.individualStateLikelyhoods(sequence)
+        overallStateLikelyhoods = [sum(likelyhoods_i) for likelyhoods_i
+                                     in zip(*stateLikelyhoods)]
         transitionLikelyhoods = self.expectedTransitionLikelyhoods(sequence)
         new_initial = stateLikelyhoods[0]
         assert len(new_initial) == self.num_states + 1
-        new_transitions = [sum([transitionLikelyhood[(state_num_i, state_num_j)]
-                                for transitionLikelyhood in transitionLikelyhoods])
-                           /
-                           sum([stateLikelyhood[state_num_i]
-                                for stateLikelyhood in stateLikelyhoods])
-                           for state_num_i in range(self.num_states+1)
-                           for state_num_j in range(self.num_states+1)]
+        new_transitions : List[float] = []
+        for state_num_i, overallStateLikelyhood in enumerate(overallStateLikelyhoods):
+            if overallStateLikelyhood == 0:
+                new_transitions += [0] * (self.num_states+1)
+            else:
+                new_transitions += [sum([transitionLikelyhood[(state_num_i, state_num_j)]
+                                         for transitionLikelyhood
+                                         in transitionLikelyhoods])
+                                    / overallStateLikelyhood
+                                    for state_num_j in range(self.num_states+1)]
         assert len(new_transitions) == (self.num_states+1)**2, \
             "len(new_transitions): {}".format(len(new_transitions))
-        new_emissions = [sum([stateLikelyhood_t[state_num]
-                              if emission == O_t else 0
-                              for O_t, stateLikelyhood_t in zip(sequence, stateLikelyhoods)])
-                         /
-                         sum([stateLikelyhood_t[state_num]
-                              for stateLikelyhood_t in stateLikelyhoods])
-                         for state_num in range(self.num_states+1)
-                         for emission in range(self.num_emissions+1)]
+        new_emissions : List[float] = []
+        for state_num, overallStateLikelyhood in enumerate(overallStateLikelyhoods):
+            if overallStateLikelyhood == 0:
+                new_emissions += [0] * (self.num_emissions+1)
+            else:
+                new_emissions += [sum([stateLikelyhood_t[state_num]
+                                       if emission == O_t else 0
+                                       for O_t, stateLikelyhood_t
+                                       in zip(sequence, stateLikelyhoods)])
+                                  / overallStateLikelyhood
+                                  for emission in range(self.num_emissions+1)]
         assert len(new_emissions) == (self.num_states+1)*(self.num_emissions+1)
         return new_initial + new_transitions + new_emissions
 
