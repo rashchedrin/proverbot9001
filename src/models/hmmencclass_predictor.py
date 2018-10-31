@@ -224,6 +224,8 @@ def main(arg_list : List[str]) -> None:
                         default=128, type=int)
     parser.add_argument("--encoder-max-terms", dest="encoder_max_terms",
                         default=None, type=int)
+    parser.add_argument("--num-threads", "-j", dest="num_threads",
+                        default=None, type=int)
     args = parser.parse_args(arg_list)
     if not args.num_hidden_states:
         args.num_hidden_states = args.num_keywords

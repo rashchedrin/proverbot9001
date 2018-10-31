@@ -7,7 +7,7 @@ import inspect
 import re
 import functools
 
-from typing import List, Iterable, Tuple, Dict
+from typing import List, Iterable, Tuple, Dict, Optional
 
 from util import *
 import multiprocessing
@@ -142,9 +142,9 @@ class HiddenMarkovModel:
                                   for (key, value) in unnormalized_probabilities.items()})
 
         return probabilities
-    def reestimate(self, sequences : List[List[int]]) -> \
+    def reestimate(self, sequences : List[List[int]], num_threads : int) -> \
         Tuple[List[float], Dict[Tuple[int, int], float], Dict[Tuple[int, int], float]]:
-        with multiprocessing.Pool(None) as pool:
+        with multiprocessing.Pool(num_threads) as pool:
             sequenceStateLikelyhoods = \
                 list(itertools.chain.from_iterable(pool.imap_unordered(
                     functools.partial(listmap, self.individualStateLikelyhoods),
@@ -157,7 +157,7 @@ class HiddenMarkovModel:
         new_initial = [sum(likelyhoods) / len(likelyhoods) for likelyhoods in
                        zip(*[stateLikelyhood[0] for stateLikelyhood in
                              sequenceStateLikelyhoods])]
-        with multiprocessing.Pool(None) as pool:
+        with multiprocessing.Pool(num_threads) as pool:
             transition_probabilities = \
                 list(itertools.chain.from_iterable(pool.map(
                     functools.partial(state_chunk_transition_probabilities,
@@ -169,7 +169,7 @@ class HiddenMarkovModel:
         new_transitions = {(state_num_i, state_num_j) :
                            transition_probabilities[state_num_i][state_num_j]
                            for (state_num_i, state_num_j) in self.transition_probabilities}
-        with multiprocessing.Pool(None) as pool:
+        with multiprocessing.Pool(num_threads) as pool:
             emission_probabilities = \
                 list(itertools.chain.from_iterable(pool.map(
                     functools.partial(state_chunk_emission_probabilities,
@@ -233,8 +233,8 @@ class HiddenMarkovModel:
     #                        penwidth="{:.1f}".format(4 * probability + 1))
     #     graph.view()
     #     pass
-    def train(self, data : List[List[int]]) -> None:
-
+    def train(self, data : List[List[int]],
+              num_threads : Optional[int] = None) -> None:
         for i in range(100):
             new_initial, new_transition, new_emission = \
                 self.reestimate([seq + [self.num_emissions] for seq in data])
