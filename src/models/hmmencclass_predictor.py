@@ -40,6 +40,7 @@ class HMMEncoderClassifier(TacticPredictor):
         assert checkpoint['num-keywords']
         assert checkpoint['tokenizer-name']
         assert checkpoint['num-hidden-states']
+        assert checkpoint['max-length']
 
         # Classifier parameters
         assert checkpoint['num-decoder-layers']
@@ -82,6 +83,7 @@ class HMMEncoderClassifier(TacticPredictor):
         self.decoder.load_state_dict(checkpoint['decoder'])
 
         self.context_filter = checkpoint['context-filter']
+        self.max_length = checkpoint['max-length']
 
     def __init__(self, options : Dict[str, Any]) -> None:
         self.load_saved_state(options["filename"])
@@ -91,7 +93,7 @@ class HMMEncoderClassifier(TacticPredictor):
     def predictDistribution(self, in_data : Dict[str, Union[List[str], str]]) \
         -> torch.FloatTensor:
         return self.decoder.run(FloatTensor(self.encoder.encode(
-            self.tokenizer.toTokenList(in_data["goal"])))).view(1, -1)
+            self.tokenizer.toTokenList(in_data["goal"])[:self.max_length]))).view(1, -1)
 
     def predictKTactics(self, in_data : Dict[str, Union[List[str], str]], k : int) \
                         -> List[Tuple[str, float]]:
@@ -202,11 +204,12 @@ def use_tokenizer(tokenizer : tk.Tokenizer, term_strings : str):
             for term_string in term_strings]
 
 def encode_point_batch(encoder : HiddenMarkovModel, tokenizer : tk.Tokenizer,
+                       max_length : int,
                        point_batch : Tuple[str, int]) -> \
                        List[Tuple[List[float], int]]:
     encoded_batch : List[Tuple[List[float], int]] = []
     for goal, tactic_id in point_batch:
-        encoded_batch.append((encoder.encode(tokenizer.toTokenList(goal)), tactic_id))
+        encoded_batch.append((encoder.encode(tokenizer.toTokenList(goal)[:max_length]), tactic_id))
     return encoded_batch
 
 def main(arg_list : List[str]) -> None:
