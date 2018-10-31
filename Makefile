@@ -40,7 +40,7 @@ report:
 train:
 	./src/proverbot9001.py train encdec data/scrape.txt data/pytorch-weights.tar $(FLAGS) --hidden-size $(HIDDEN_SIZE)
 
-INDEX_FILES=reports/index.js reports/index.css reports/build-index.py
+INDEX_FILES=index.js index.css build-index.py
 
 publish:
 	$(eval REPORT_NAME := $(shell ./reports/get-report-name.py $(REPORT)/))
