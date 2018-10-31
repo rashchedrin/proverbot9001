@@ -5,6 +5,7 @@ import io
 import math
 import re
 import itertools
+import inspect
 
 import torch
 import torch.cuda
@@ -13,6 +14,8 @@ import torch.autograd as autograd
 from serapi_instance import kill_comments
 
 from typing import List, Iterable, Any, overload, TypeVar, Callable
+
+debug = True
 
 use_cuda = torch.cuda.is_available()
 assert use_cuda
@@ -98,3 +101,28 @@ A = TypeVar('A')
 B = TypeVar('B')
 def listmap(f : Callable[[A], B], l : List[A]) -> List[B]:
     return list(map(f, l))
+
+def echo_format(arg):
+    frame = inspect.currentframe()
+    try:
+        context = inspect.getframeinfo(frame.f_back).code_context
+        caller_lines = ''.join([line.strip() for line in context])
+        m = re.search(r'echo_format\s*\((.+?)\)$', caller_lines)
+        if m:
+            caller_lines = m.group(1)
+        return "{}: {}".format(caller_lines, arg)
+    finally:
+        del frame
+def echo(arg):
+    if not debug:
+        return
+    frame = inspect.currentframe()
+    try:
+        context = inspect.getframeinfo(frame.f_back).code_context
+        caller_lines = ''.join([line.strip() for line in context])
+        m = re.search(r'echo\s*\((.+?)\)$', caller_lines)
+        if m:
+            caller_lines = m.group(1)
+        print("{}: {}".format(caller_lines, arg))
+    finally:
+        del frame

@@ -13,8 +13,6 @@ from util import *
 import multiprocessing
 
 eps = 0.001
-debug = False
-
 class HiddenMarkovModel:
     def __init__(self, num_states : int, num_emissions : int) -> None:
         self.num_states = num_states
@@ -313,31 +311,6 @@ def sample_distribution(distribution : List[float]):
             return index
         else:
             continous_sample -= probability
-
-def echo_format(arg):
-    frame = inspect.currentframe()
-    try:
-        context = inspect.getframeinfo(frame.f_back).code_context
-        caller_lines = ''.join([line.strip() for line in context])
-        m = re.search(r'echo_format\s*\((.+?)\)$', caller_lines)
-        if m:
-            caller_lines = m.group(1)
-        return "{}: {}".format(caller_lines, arg)
-    finally:
-        del frame
-def echo(arg):
-    if not debug:
-        return
-    frame = inspect.currentframe()
-    try:
-        context = inspect.getframeinfo(frame.f_back).code_context
-        caller_lines = ''.join([line.strip() for line in context])
-        m = re.search(r'echo\s*\((.+?)\)$', caller_lines)
-        if m:
-            caller_lines = m.group(1)
-        print("{}: {}".format(caller_lines, arg))
-    finally:
-        del frame
 # model = HiddenMarkovModel(2, 3)
 # model.train([[0, 1, 0, 1, 0, 1, 0],
 #              [1, 0, 1, 0, 1, 0],
