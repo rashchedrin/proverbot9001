@@ -236,6 +236,10 @@ class HiddenMarkovModel:
     def train(self, data : List[List[int]],
               num_threads : Optional[int] = None) -> None:
         for i in range(100):
+            curtime = time.time()
+            print("  Iteration {}:".format(i))
+            sys.stdout.flush()
+
             new_initial, new_transition, new_emission = \
             if new_initial == self.initial_probabilities and \
                new_transition == self.transition_probabilities and \
@@ -246,6 +250,9 @@ class HiddenMarkovModel:
                 self.transition_probabilities, \
                 self.emission_probabilities \
                 = new_initial, new_transition, new_emission
+
+            print("  Iteration: {:.2f}s".format(time.time() - curtime))
+
     def encoding_length(self) -> int:
         return (self.num_states+1) + (self.num_states+1)**2 + \
             (self.num_states+1) * (self.num_emissions+1)
