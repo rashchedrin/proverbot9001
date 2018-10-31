@@ -75,8 +75,8 @@ class HMMEncoderClassifier(TacticPredictor):
 
         self.encoder = checkpoint['hmm-encoder']
 
-        self.decoder = maybe_cuda(ClassifierDNN(checkpoint['encoded-size'],
-                                                checkpoint['hidden-size'],
+        self.decoder = maybe_cuda(ClassifierDNN(self.encoder.encoding_length(),
+                                                checkpoint['decoder-hidden-size'],
                                                 self.embedding.num_tokens(),
                                                 checkpoint['num-decoder-layers']))
         self.decoder.load_state_dict(checkpoint['decoder'])
@@ -90,8 +90,8 @@ class HMMEncoderClassifier(TacticPredictor):
 
     def predictDistribution(self, in_data : Dict[str, Union[List[str], str]]) \
         -> torch.FloatTensor:
-        return self.decoder.run(self.encoder.encode(
-            self.tokenizer.toTokenList(in_data["goal"]))).view(1, -1)
+        return self.decoder.run(FloatTensor(self.encoder.encode(
+            self.tokenizer.toTokenList(in_data["goal"])))).view(1, -1)
 
     def predictKTactics(self, in_data : Dict[str, Union[List[str], str]], k : int) \
                         -> List[Tuple[str, float]]:
@@ -145,7 +145,7 @@ def train_classifier(dataset : List[Tuple[List[float], int]],
     in_stream, out_stream = zip(*dataset)
     print("Initializing PyTorch...")
     dataloader = \
-        torchdata.DataLoader(torchdata.TensorDataset(torch.LongTensor(in_stream),
+        torchdata.DataLoader(torchdata.TensorDataset(torch.FloatTensor(in_stream),
                                                      torch.LongTensor(out_stream)),
                              batch_size=batch_size, num_workers=0,
                              shuffle=True, pin_memory=True, drop_last=True)
@@ -195,11 +195,19 @@ def train_classifier(dataset : List[Tuple[List[float], int]],
                              total_loss / items_processed))
 
         yield Checkpoint(classifier_state=classifier.state_dict(),
-                         training_loss=total_loss / items_processed)
+                         training_loss=total_loss / ((epoch + 1)* len(dataset)))
 
 def use_tokenizer(tokenizer : tk.Tokenizer, term_strings : str):
     return [tokenizer.toTokenList(term_string)
             for term_string in term_strings]
+
+def encode_point_batch(encoder : HiddenMarkovModel, tokenizer : tk.Tokenizer,
+                       point_batch : Tuple[str, int]) -> \
+                       List[Tuple[List[float], int]]:
+    encoded_batch : List[Tuple[List[float], int]] = []
+    for goal, tactic_id in point_batch:
+        encoded_batch.append((encoder.encode(tokenizer.toTokenList(goal)), tactic_id))
+    return encoded_batch
 
 def main(arg_list : List[str]) -> None:
     parser = argparse.ArgumentParser(description=
@@ -211,6 +219,8 @@ def main(arg_list : List[str]) -> None:
                         default=3, type=int)
     parser.add_argument("--classifier-hidden-size", dest="classifier_hidden_size",
                         default=128, type=int)
+    parser.add_argument("--encoder-max-terms", dest="encoder_max_terms",
+                        default=None, type=int)
     args = parser.parse_args(arg_list)
     if not args.num_hidden_states:
         args.num_hidden_states = args.num_keywords
@@ -251,24 +261,29 @@ def main(arg_list : List[str]) -> None:
     encoder = HiddenMarkovModel(args.num_hidden_states, args.num_keywords + 1)
 
     curtime = time.time()
-    print("Training encoder...", end="")
+    print("Training encoder...")
     sys.stdout.flush()
     truncated_data = [seq[:args.max_length] for seq in tokenized_data]
+    if args.encoder_max_terms:
+        truncated_data = truncated_data[:args.encoder_max_terms]
     encoder.train(truncated_data)
-    print(" {:.2f}s".format(time.time() - curtime))
+    print("Total: {:.2f}s".format(time.time() - curtime))
 
     embedding = SimpleEmbedding()
 
     curtime = time.time()
     print("Tokenizing/encoding data pairs...", end="")
     sys.stdout.flush()
-    dataset = [(encoder.encode(tokenizer.toTokenList(goal)),
-                embedding.encode_token(get_stem(tactic)))
-               for hyps, goal, tactic in filtered_data]
+    with multiprocessing.Pool(None) as pool:
+        dataset = list(itertools.chain.from_iterable(pool.imap_unordered(
+            functools.partial(encode_point_batch, encoder, tokenizer),
+            chunks([(goal, embedding.encode_token(get_stem(tactic)))
+                    for hyps, goal, tactic in filtered_data],
+                   math.ceil(len(filtered_data)/100)))))
     print(" {:.2f}s".format(time.time() - curtime))
 
     checkpoints = train_classifier(dataset, encoder.encoding_length(),
-                                   args.classifier_hidden_size, args.classifier_num_layers,
+                                   args.classifier_hidden_size, args.num_classifier_layers,
                                    embedding.num_tokens(),
                                    args.batch_size, args.learning_rate, args.gamma,
                                    args.epoch_step, args.num_epochs, args.print_every,
@@ -281,7 +296,7 @@ def main(arg_list : List[str]) -> None:
             'tokenizer-name' : args.tokenizer,
             'num-hidden-states' : args.num_hidden_states,
             # Classifier parameters
-            'num-decoder-layers' : args.classifier_num_layers,
+            'num-decoder-layers' : args.num_classifier_layers,
             'decoder-hidden-size' : args.classifier_hidden_size,
             'learning-rate' : args.learning_rate,
             'optimizer-name' : args.optimizer,

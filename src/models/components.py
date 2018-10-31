@@ -25,6 +25,7 @@ class SimpleEmbedding:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Variable
 from util import *
 
 class ClassifierDNN(nn.Module):
@@ -51,5 +52,5 @@ class ClassifierDNN(nn.Module):
         return self.softmax(self.out_layer(layer_values))
 
     def run(self, sentence : torch.FloatTensor) -> torch.FloatTensor:
-        result = self(sentence)
+        result = self(maybe_cuda(Variable(sentence)))
         return result
