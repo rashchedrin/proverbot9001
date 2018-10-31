@@ -259,6 +259,7 @@ def main(arg_list : List[str]) -> None:
         hmm_weights = torch.load(args.hmm_weightsfile)
         assert hmm_weights['hmm-encoder']
 
+        tokenizer = hmm_weights['tokenizer']
         encoder = hmm_weights['hmm-encoder']
         args.max_length = hmm_weights['max-length']
         args.num_hidden_states = hmm_weights['num-hidden-states']
@@ -293,10 +294,12 @@ def main(arg_list : List[str]) -> None:
 
         if args.train_encoder_only:
             with open(args.save_file, 'wb') as f:
-                torch.save({'hmm-encoder': encoder,
+                torch.save({'tokenizer': tokenizer,
+                            'hmm-encoder': encoder,
                             'max-length': args.max_length,
                             'num-hidden-states':args.num_hidden_states,
-                            'num-keywords': args.num_keywords})
+                            'num-keywords': args.num_keywords},
+                           f)
             return
 
     embedding = SimpleEmbedding()
