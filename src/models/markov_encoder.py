@@ -138,7 +138,8 @@ class HiddenMarkovModel:
                         forward_prob * self.transition_probabilities[(state_num_i, state_num_j)] * \
                         self.emission_probabilities[(state_num_j, emission_t_plus_1)] * backward_prob
             total_prob = sum(unnormalized_probabilities.values())
-            probabilities.append({key : value / total_prob for (key, value) in unnormalized_probabilities.items()})
+            probabilities.append({key : (value / total_prob if total_prob > 0 else 0)
+                                  for (key, value) in unnormalized_probabilities.items()})
 
         return probabilities
     def reestimate(self, sequences : List[List[int]]) -> \
@@ -147,61 +148,36 @@ class HiddenMarkovModel:
             sequenceStateLikelyhoods = \
                 list(itertools.chain.from_iterable(pool.imap_unordered(
                     functools.partial(listmap, self.individualStateLikelyhoods),
-                    chunks(sequences, 32768))))
+                    chunks(sequences, 100))))
             sequenceTransitionLikelyhoods = \
                 list(itertools.chain.from_iterable(pool.imap_unordered(
                     functools.partial(listmap, self.expectedTransitionLikelyhoods),
-                    chunks(sequences, 32768))))
+                    chunks(sequences, 10))))
         num_states_visited_total = sum([len(seq) for seq in sequences])
         new_initial = [sum(likelyhoods) / len(likelyhoods) for likelyhoods in
                        zip(*[stateLikelyhood[0] for stateLikelyhood in
                              sequenceStateLikelyhoods])]
-        new_transitions = {}
-        for state_num_i in range(self.num_states+1):
-            total_likelyhood_i = sum([sum([stateLikelyhood[state_num_i]
-                                           for stateLikelyhood in stateLikelyhoods])
-                                      for stateLikelyhoods in sequenceStateLikelyhoods])
-            assert total_likelyhood_i > 0
-            expected_times_in_state = num_states_visited_total * total_likelyhood_i
-            smoothing_factor = 1 / expected_times_in_state
-            for state_num_j in range(self.num_states+1):
-                transition_likelyhood_i_j = sum([sum([transitionLikelyhood
-                                                      [(state_num_i, state_num_j)]
-                                                      for transitionLikelyhood
-                                                      in transitionLikelyhoods])
-                                                 for transitionLikelyhoods in
-                                                 sequenceTransitionLikelyhoods])
-                new_transitions[(state_num_i, state_num_j)] = \
-                    (transitionLikelyhod_i_j + smoothing_factor) / \
-                    (total_likelyhood_i + smoothing_factor)
-
-        emission_probabilities : List[List[float]] = []
-        for state_num in range(self.num_states+1):
-            total_state_likelyhood = \
-                sum([sum([t_likelyhood[state_num] for t_likelyhood in stateLikelyhoods])
-                     for stateLikelyhoods in sequenceStateLikelyhoods])
-            assert total_state_likelyhood > 0
-            expected_times_in_state = num_states_visited_total * total_state_likelyhood
-            emission_probabilities.append([])
-            for emission in range(self.num_emissions+1):
-                emission_likelyhood_in_state = 0
-                for t, (seq_ts, stateLikelyhoods_t) in \
-                    enumerate(zip(zip(*sequences), zip(*sequenceStateLikelyhoods))):
-                    emission_likelyhood_at_t_in_state = \
-                        sum([stateLikelyhood_t[state_num]
-                             if O_t == emission else 0
-                             for O_t, stateLikelyhood_t
-                             in zip(list(seq_ts), list(stateLikelyhoods_t))])
-                    emission_likelyhood_in_state += \
-                        emission_likelyhood_at_t_in_state
-                assert emission_likelyhood_in_state > 0
-                smoothing_factor = 1 / expected_times_in_state
-                new_emission_prob = ((emission_likelyhood_in_state + smoothing_factor)
-                                     /
-                                     (total_state_likelyhood + smoothing_factor))
-                assert new_emission_prob > 0
-
-                emission_probabilities[-1].append(new_emission_prob)
+        with multiprocessing.Pool(None) as pool:
+            transition_probabilities = \
+                list(itertools.chain.from_iterable(pool.map(
+                    functools.partial(state_chunk_transition_probabilities,
+                                      num_states_visited_total,
+                                      self.num_states,
+                                      sequenceStateLikelyhoods,
+                                      sequenceTransitionLikelyhoods),
+                    chunks(range(self.num_states+1), math.ceil(self.num_states / 10)))))
+        new_transitions = {(state_num_i, state_num_j) :
+                           transition_probabilities[state_num_i][state_num_j]
+                           for (state_num_i, state_num_j) in self.transition_probabilities}
+        with multiprocessing.Pool(None) as pool:
+            emission_probabilities = \
+                list(itertools.chain.from_iterable(pool.map(
+                    functools.partial(state_chunk_emission_probabilities,
+                                      num_states_visited_total,
+                                      self.num_emissions,
+                                      sequenceStateLikelyhoods,
+                                      sequences),
+                    chunks(range(self.num_states+1), math.ceil(self.num_states / 10)))))
 
         new_emission = {(state_num, emission) :
                         emission_probabilities[state_num][emission]
@@ -298,6 +274,64 @@ class HiddenMarkovModel:
                          for emission in range(self.num_emissions+1)]
         assert len(new_emissions) == (self.num_states+1)*(self.num_emissions+1)
         return new_initial + new_transitions + new_emissions
+
+def state_chunk_transition_probabilities(num_states_visited_total : int,
+                                         num_states : int,
+                                         sequenceStateLikelyhoods :
+                                         List[List[List[float]]],
+                                         sequenceTransitionLikelyhoods :
+                                         List[List[Dict[Tuple[int, int], float]]],
+                                         state_num_chunk : List[int]) -> List[List[float]]:
+    transition_probabilities : List[List[float]] = []
+    for state_num_i in state_num_chunk:
+        total_likelyhood_i = sum([sum([stateLikelyhood[state_num_i]
+                                       for stateLikelyhood in stateLikelyhoods])
+                                  for stateLikelyhoods in sequenceStateLikelyhoods])
+        expected_times_in_state = num_states_visited_total * total_likelyhood_i
+        smoothing_factor = 1 / expected_times_in_state
+        transition_probabilities.append([])
+        for state_num_j in range(num_states+1):
+            transition_likelyhood_i_j = sum([sum([transitionLikelyhood
+                                                  [(state_num_i, state_num_j)]
+                                                  for transitionLikelyhood
+                                                  in transitionLikelyhoods])
+                                             for transitionLikelyhoods in
+                                             sequenceTransitionLikelyhoods])
+            transition_probabilities[-1].append(
+                (transition_likelyhood_i_j + smoothing_factor) /
+                (total_likelyhood_i + smoothing_factor))
+    return transition_probabilities
+
+def state_chunk_emission_probabilities(num_states_visited_total : int,
+                                       num_emissions : int,
+                                       sequenceStateLikelyhoods : List[List[List[float]]],
+                                       sequences : List[List[int]],
+                                       state_num_chunk : List[int]) -> List[List[float]]:
+    emission_probabilities : List[List[float]] = []
+    for state_num in state_num_chunk:
+        total_state_likelyhood = \
+            sum([sum([t_likelyhood[state_num] for t_likelyhood in stateLikelyhoods])
+                 for stateLikelyhoods in sequenceStateLikelyhoods])
+        expected_times_in_state = num_states_visited_total * total_state_likelyhood
+        emission_probabilities.append([])
+        for emission in range(num_emissions+1):
+            emission_likelyhood_in_state = 0
+            for t, (seq_ts, stateLikelyhoods_t) in \
+                enumerate(zip(zip(*sequences), zip(*sequenceStateLikelyhoods))):
+                emission_likelyhood_at_t_in_state = \
+                    sum([stateLikelyhood_t[state_num]
+                         if O_t == emission else 0
+                         for O_t, stateLikelyhood_t
+                         in zip(list(seq_ts), list(stateLikelyhoods_t))])
+                emission_likelyhood_in_state += \
+                    emission_likelyhood_at_t_in_state
+            smoothing_factor = 1 / expected_times_in_state
+            new_emission_prob = ((emission_likelyhood_in_state + smoothing_factor)
+                                 /
+                                 (total_state_likelyhood + smoothing_factor))
+
+            emission_probabilities[-1].append(new_emission_prob)
+    return emission_probabilities
 
 def random_distribution(size : int) -> List[float]:
     random_floats = [random.random() for _ in range(size)]
