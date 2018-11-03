@@ -83,7 +83,7 @@ class DecoderRNN(nn.Module):
         return output, hidden
 
     def initInput(self) -> torch.LongTensor:
-        return Variable(LongTensor([[SOS_token] * self.batch_size]))
+        return Variable(LongTensor([SOS_token] * self.batch_size))
 
     def run(self, hidden : torch.FloatTensor, max_length : int) -> Sentence:
         decoder_hidden = hidden
@@ -91,9 +91,13 @@ class DecoderRNN(nn.Module):
         decoder_input = self.initInput()
         prediction : Sentence = []
 
+        print("\nEncoded vector is:\n{}".format(hidden))
         for di in range(max_length):
             decoder_output, decoder_hidden = self(decoder_input, decoder_hidden)
-            probability, decoder_input = decoder_output.view(1, -1).topk(1)
+            probability, decoder_input = decoder_output.view(-1).topk(1)
+            print("Topk distribution is {}".format(decoder_output.view(1, -1).topk(5)))
+            print("Probability of character {} is {:.2f}%".format(decoder_input, math.exp(probability.item()) * 100))
+            # assert False
             decoded_char = decoder_input.item()
             prediction.append(decoded_char)
             if decoded_char == EOS_token:
@@ -101,8 +105,7 @@ class DecoderRNN(nn.Module):
                 break
         return prediction
     def run_teach(self, hidden : torch.FloatTensor,
-                  output_batch : torch.LongTensor) -> List[torch.FloatTensor]:
-        output_variable = maybe_cuda(Variable(output_batch))
+                  output_variable : torch.LongTensor) -> List[torch.FloatTensor]:
         decoder_hidden = hidden
         decoder_input = self.initInput()
         prediction = []
@@ -168,16 +171,19 @@ def train(dataset : List[Sentence],
             decoder_optimizer.zero_grad()
 
             # Run the autoencoder
-            decoded_output = \
-                decoder.run_teach(
-                    encoder.run(cast(torch.LongTensor, input_batch)),
-                    cast(torch.LongTensor, output_batch))
+            output_var = maybe_cuda(Variable(output_batch))
+            hidden = encoder.run(cast(torch.LongTensor, input_batch))
+            decoded_output = decoder.run_teach(hidden, cast(torch.LongTensor, output_var))
 
             # Gather the losses
-            loss = maybe_cuda(Variable(torch.zeros(1, dtype=torch.float32)))
-            output_var = maybe_cuda(Variable(output_batch))
+            loss = cast(torch.LongTensor, 0)
             target_length = output_batch.size()[1]
             for i in range(target_length):
+                if (batch_num + 1) % print_every == 0:
+                    print("decoded_output[i]:\n{}"
+                          .format([distribution.topk(1)[1].item() for distribution in decoded_output[i]]))
+                    print("output_var[:,i]:\n{}"
+                          .format(output_var[:,i]))
                 loss += criterion(decoded_output[i], output_var[:,i])
             total_loss += (loss.data.item() / target_length) * batch_size
             assert total_loss == total_loss
@@ -196,6 +202,14 @@ def train(dataset : List[Sentence],
                       format(timeSince(start, progress),
                              items_processed, progress * 100,
                              total_loss / items_processed))
+
+                # print("Input: {}".format(input_batch[0]))
+                # print("Encoded to: {}".format(hidden[:,0]))
+                # print("decoded_output.size(): {}"
+                #       .format([outchar.size() for outchar in decoded_output]))
+                # print("Decoded output: ")
+                # print(*[char_info[0].topk(5) for char_info in decoded_output], sep="\n")
+                # print("Target: {}".format(output_batch[0]))
 
         yield Checkpoint(encoder_state=encoder.state_dict(),
                          decoder_state=decoder.state_dict(),
