@@ -247,14 +247,6 @@ def main(arg_list : List[str]) -> None:
         [[hyp.split(":")[1].strip() for hyp in hyps] + [goal]
          for hyps, goal, tactic in filtered_data]))
 
-    curtime = time.time()
-    print("Building tokenizer...", end="")
-    sys.stdout.flush()
-    tokenizer = tk.make_keyword_tokenizer_topk(term_strings,
-                                               tk.tokenizers[args.tokenizer],
-                                               args.num_keywords, 0)
-    print(" {:.2f}s".format(time.time() - curtime))
-
     if args.hmm_weightsfile:
         hmm_weights = torch.load(args.hmm_weightsfile)
         assert hmm_weights['hmm-encoder']
@@ -266,6 +258,14 @@ def main(arg_list : List[str]) -> None:
         args.num_keywords = hmm_weights['num-keywords']
         print("Loaded existing hmm encoder from {}".format(args.hmm_weightsfile))
     else:
+        curtime = time.time()
+        print("Building tokenizer...", end="")
+        sys.stdout.flush()
+        tokenizer = tk.make_keyword_tokenizer_topk(term_strings,
+                                                   tk.tokenizers[args.tokenizer],
+                                                   args.num_keywords, 0)
+        print(" {:.2f}s".format(time.time() - curtime))
+
         curtime = time.time()
         print("Tokenizing {} strings...".format(len(term_strings)), end="")
         sys.stdout.flush()
