@@ -15,35 +15,62 @@ import multiprocessing
 
 eps = 0.001
 class HiddenMarkovModel:
+    # Set up the model, and randomly initialize weights
     def __init__(self, num_states : int, num_emissions : int) -> None:
         self.num_states = num_states
         self.num_emissions = num_emissions
         self.randomly_initialize_weights()
         pass
+    # Predict a state sequence of states of a given length
     def predictStates(self, length : int) -> List[int]:
+        # To compute the optimal sequence of a particular length i,
+        # we'll need to compute the likelyhood of being in each state,
+        # at each timestep (given the emissions so far).
         back_pointers : List[List[int]] = []
+        # Start off with our initial probabilities
         state_probabilities : List[float] = self.initial_probabilities
         for i in range(length):
+            # For each state, lets find out the best way to get
+            # there. We know how likely the previous states were, and
+            # we know how likely our transitions are. So we can
+            # compute the likelyhood of getting to any next state from
+            # any previous state. For each next state, we'll figure
+            # out the best previous state to get to it, and then save
+            # the index of that state, and the probability of the new
+            # state coming from that state.
             seq_probs_and_back_pointers = \
                 [max([(state_probabilities[j] * self.transition_probabilities[(j, i)], j)
                       for j in range(self.num_states+1)], key=lambda p: p[0])
                  for i in range(self.num_states+1)]
+            # Pull out the indices of, for each new state, the best
+            # previous state to get there.
             back_pointers.append([back_pointer for prob, back_pointer
                                   in seq_probs_and_back_pointers])
+            # Pull out the new probabilities for each state
             state_probabilities = [prob for prob, back_pointer in
                                    seq_probs_and_back_pointers]
+        # The sequence always ends in the final state
         backwards_best_states : List[int] = [self.num_states]
+        # From there, look through the backpointers to find out what
+        # the best state to get to the final state is, and then the
+        # best state to get to that one, and so on.
         for pointer_row in reversed(back_pointers):
             backwards_best_states.append(pointer_row[backwards_best_states[-1]])
 
+        # Finally, strip off the final state and return it
         return list(reversed(backwards_best_states[1:]))
 
+    # Find the most likely set of emissions of length `length` for this model
     def predictSequence(self, length : int) -> List[int]:
+        # Since the states don't depend on the emissions, we can just
+        # get the most likely states, and then return the most likely
+        # emission from each.
         best_states = self.predictStates(length)
 
         return [max(range(self.num_emissions+1),
                     key=lambda e: self.emission_probabilities[(s, e)])
                 for s in best_states]
+    # Produce a state sequence by running the markov model
     def sampleStates(self, length : int) -> List[int]:
         states = [sample_distribution(self.initial_probabilities)]
         for t in range(1, length):
@@ -61,6 +88,10 @@ class HiddenMarkovModel:
         return [sample_distribution([self.emission_probabilities[(s, e)] for
                                      e in range(self.num_emissions + 1)])
                 for s in sampled_states]
+
+    # The backward likelyhoods. This is the likelyhoods, for any time
+    # `t` and state `s`, of finishing the rest of the sequence from
+    # there.
     def backwardLikelyhoods(self, seq : List[int]) -> List[List[float]]:
         reversed_probabilities : List[List[float]] = []
 
@@ -81,11 +112,15 @@ class HiddenMarkovModel:
                 reversed_probabilities[-1].append(PrS)
 
         return list(reversed(reversed_probabilities))
+    # The forward likelyhoods. This is the likelyhoods, for any time
+    # `t` and state `s`, of having seen the sequence so far.
     def forwardLikelyhoods(self, seq : List[int]) -> List[List[float]]:
         return forwardLikelyhoods(self.initial_probabilities,
                                   self.transition_probabilities,
                                   self.emission_probabilities,
                                   seq)
+    # The likelyhood of being in each state, at each time, given a
+    # sequence (and a model)
     def individualStateLikelyhoods(self, seq : List[int]) -> List[List[float]]:
         forwardProbabilities = self.forwardLikelyhoods(seq)
         backwardProbabilities = self.backwardLikelyhoods(seq)
@@ -103,6 +138,7 @@ class HiddenMarkovModel:
 
         return probabilities
 
+    # The likelyhood of every transition, at every time `t`
     def expectedTransitionLikelyhoods(self, seq : List[int]) -> \
         List[Dict[Tuple[int, int], float]]:
         forwardProbabilities = self.forwardLikelyhoods(seq)
@@ -122,6 +158,8 @@ class HiddenMarkovModel:
                                   for (key, value) in unnormalized_probabilities.items()})
 
         return probabilities
+    # Recompute probabilities based on a set of sequences. This is
+    # expensive, so it's set up to work across multiple cores.
     def reestimate(self, sequences : List[List[int]], num_threads : int) -> \
         Tuple[List[float], Dict[Tuple[int, int], float], Dict[Tuple[int, int], float]]:
         with multiprocessing.Pool(num_threads) as pool:
@@ -165,9 +203,12 @@ class HiddenMarkovModel:
 
         return new_initial, new_transitions, new_emission
 
+    # Set the weights randomly, given some invariants about the weights
     def randomly_initialize_weights(self) -> None:
+        # You can't start in the final state
         self.initial_probabilities : List[float] = \
             random_distribution(self.num_states) + [0]
+        # You don't transition from the final state to anything
         self.transition_probabilities = {**{(i, j) : f
                                             for j, f in
                                             enumerate(random_distribution(
@@ -177,6 +218,7 @@ class HiddenMarkovModel:
                                          **{(self.num_states, j) : 0
                                             for j in range(self.num_states)}}
         self.emission_probabilities : Dict[Tuple[int, int], float]= {}
+        # The final state doesn't emit anything but the final token
         for s in range(self.num_states):
             emission_distribution = random_distribution(self.num_emissions)
             for emission, probability in enumerate(emission_distribution):
@@ -185,6 +227,9 @@ class HiddenMarkovModel:
         for emission in range(self.num_emissions):
             self.emission_probabilities[(self.num_states, emission)] = 0
         self.emission_probabilities[(self.num_states, self.num_emissions)] = 1
+    # This code is super useful for debugging, you just need to
+    # install "graphviz" and run it locally.
+
     # def view(self, path : str) -> None:
     #     def state_str(s : int):
     #         if s == self.num_states:
@@ -215,6 +260,8 @@ class HiddenMarkovModel:
     #     pass
     def train(self, data : List[List[int]],
               num_threads : Optional[int] = None) -> None:
+        # Keep calling reestimate 100 times, and pick the best weights
+        # (ones that minimize the loss)
         best_loss = float("+inf")
         best_initial = None
         best_transition = None
@@ -255,6 +302,10 @@ class HiddenMarkovModel:
     def encoding_length(self) -> int:
         return (self.num_states+1) + (self.num_states+1)**2 + \
             (self.num_states+1) * (self.num_emissions+1)
+    # Encode a sequence by reestimating with it, and then using those
+    # probabilities as the encoding (could also do the changes, but
+    # it's essentially the same). Most of this code is the same as in
+    # the reestimate stuff.
     def encode(self, sequence : List[int]) -> List[float]:
         sequence = sequence + [self.num_emissions]
         stateLikelyhoods = self.individualStateLikelyhoods(sequence)
