@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import sys
 import random
 import itertools
 # from graphviz import Digraph
@@ -81,31 +82,10 @@ class HiddenMarkovModel:
 
         return list(reversed(reversed_probabilities))
     def forwardLikelyhoods(self, seq : List[int]) -> List[List[float]]:
-        probabilities : List[List[float]] = []
-
-        # Set up the first row of probabilities
-        probabilities.append([])
-        for state_num, PrS in enumerate(self.initial_probabilities):
-            # Probability of the emission 'seq[0]' in state 'state_num'
-            PrEinS = self.emission_probabilities[(state_num, seq[0])] * PrS
-            probabilities[0].append(PrEinS)
-
-        # Get the rows after that
-        for t, emission in enumerate(seq[1:], 1):
-            # Set up the next row of probabilities
-            probabilities.append([])
-
-            for state_num in range(self.num_states+1):
-                # Probability of being in state 'state_num' at time
-                # 't', and emitting 'emission'
-                PrS = sum([self.transition_probabilities[(prev_state_num,
-                                                          state_num)] * prevPrS
-                           for prev_state_num, prevPrS in enumerate(probabilities[t-1])]) \
-                               * self.emission_probabilities[(state_num, emission)]
-                probabilities[t].append(PrS)
-        return probabilities
-    def forwardLikelyhood(self, seq : List[int]) -> float:
-        return sum(self.forwardLikelyhoods(seq)[-1])
+        return forwardLikelyhoods(self.initial_probabilities,
+                                  self.transition_probabilities,
+                                  self.emission_probabilities,
+                                  seq)
     def individualStateLikelyhoods(self, seq : List[int]) -> List[List[float]]:
         forwardProbabilities = self.forwardLikelyhoods(seq)
         backwardProbabilities = self.backwardLikelyhoods(seq)
@@ -235,23 +215,42 @@ class HiddenMarkovModel:
     #     pass
     def train(self, data : List[List[int]],
               num_threads : Optional[int] = None) -> None:
+        best_loss = float("+inf")
+        best_initial = None
+        best_transition = None
+        best_emission = None
         for i in range(100):
             curtime = time.time()
             print("  Iteration {}:".format(i))
             sys.stdout.flush()
 
             new_initial, new_transition, new_emission = \
+                self.reestimate([seq + [self.num_emissions] for seq in data], num_threads)
             if new_initial == self.initial_probabilities and \
                new_transition == self.transition_probabilities and \
                new_emission == self.emission_probabilities:
-                self.reestimate([seq + [self.num_emissions] for seq in data], num_threads)
                 break
+            def individualLoss(seq : List[int]):
+                return sum(forwardLikelyhoods(new_initial,
+                                              new_transition,
+                                              new_emission,
+                                              seq)[-1])
+            loss = sum([-math.log(individualLoss(seq))
+                        for seq in data]) / len(data)
+            print("  Iteration: {:.2f}s, loss {}".format(time.time() - curtime, loss))
+
+            if loss < best_loss:
+                best_initial = new_initial
+                best_transition = new_transition
+                best_emission = new_emission
+                best_loss = loss
             self.initial_probabilities, \
                 self.transition_probabilities, \
                 self.emission_probabilities \
                 = new_initial, new_transition, new_emission
-
-            print("  Iteration: {:.2f}s".format(time.time() - curtime))
+        self.initial_probabilities = best_initial
+        self.transition_probabilities = best_transition
+        self.emission_probabilities = best_emission
 
     def encoding_length(self) -> int:
         return (self.num_states+1) + (self.num_states+1)**2 + \
@@ -369,3 +368,31 @@ def sample_distribution(distribution : List[float]):
 #              [1, 0, 1, 0, 1, 0, 1, 0],
 #              ])
 # debug = True
+
+def forwardLikelyhoods(initial_probabilities : List[float],
+                       transition_probabilities : Dict[Tuple[int, int], float],
+                       emission_probabilities : Dict[Tuple[int, int], float],
+                       seq : List[int]):
+    probabilities : List[List[float]] = []
+
+    # Set up the first row of probabilities
+    probabilities.append([])
+    for state_num, PrS in enumerate(initial_probabilities):
+        # Probability of the emission 'seq[0]' in state 'state_num'
+        PrEinS = emission_probabilities[(state_num, seq[0])] * PrS
+        probabilities[0].append(PrEinS)
+
+    # Get the rows after that
+    for t, emission in enumerate(seq[1:], 1):
+        # Set up the next row of probabilities
+        probabilities.append([])
+
+        for state_num in range(len(initial_probabilities)):
+            # Probability of being in state 'state_num' at time
+            # 't', and emitting 'emission'
+            PrS = sum([transition_probabilities[(prev_state_num,
+                                                 state_num)] * prevPrS
+                       for prev_state_num, prevPrS in enumerate(probabilities[t-1])]) \
+                           * emission_probabilities[(state_num, emission)]
+            probabilities[t].append(PrS)
+    return probabilities
