@@ -7,7 +7,7 @@ NTHREADS=16
 FLAGS=
 HIDDEN_SIZE=512
 
-SITE_PATH=goto:/home/alexss/proverbot9001-site
+SITE_PATH=goto.ucsd.edu:/home/alexss/proverbot9001-site
 
 ifeq ($(NUM_FILES),)
 HEAD_CMD=cat
@@ -38,7 +38,10 @@ report:
 	xargs ./src/proverbot9001.py report -j $(NTHREADS) --prelude ./CompCert $(FLAGS))
 
 train:
-	./src/proverbot9001.py train encdec data/scrape.txt data/pytorch-weights.tar $(FLAGS) --hidden-size $(HIDDEN_SIZE)
+	./src/proverbot9001.py train ngramclass data/scrape.txt data/pytorch-weights.tar $(FLAGS) #--hidden-size $(HIDDEN_SIZE)
+
+test:
+	./src/proverbot9001.py report -j $(NTHREADS) --prelude ./CompCert ./lib/Parmov.v --predictor=ngramclass
 
 publish:
 	$(eval REPORT_NAME := $(shell ./reports/get-report-name.py $(REPORT)/))
@@ -47,7 +50,7 @@ publish:
 	tar czf report.tar.gz $(REPORT_NAME)
 	rsync -avz report.tar.gz $(SITE_PATH)/reports/
 	rsync -avz reports/index.js reports/index.css reports/build-index.py $(SITE_PATH)/reports/
-	ssh goto 'cd proverbot9001-site/reports && \
+	ssh goto.ucsd.edu 'cd /home/alexss/proverbot9001-site/reports && \
                   tar xzf report.tar.gz && \
                   rm report.tar.gz && \
                   ./build-index.py'
