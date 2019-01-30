@@ -79,6 +79,7 @@ class LazyEmbeddedDataset(EmbeddedDataset):
 
 class TokenizedSample(NamedTuple):
     prev_tactics : List[str]
+    hypotheses : Sentence
     goal : Sentence
     tactic : int
 
@@ -220,6 +221,7 @@ def tokenize_data(tokenizer : Tokenizer, embedding : SimpleEmbedding,
 def tokenize_worker__(tokenizer : Tokenizer, embedding : SimpleEmbedding,
                       chunk : EmbeddedDataset) -> TokenizedDataset:
     return TokenizedDataset([TokenizedSample(prev_tactics,
+                                             tokenizer.toTokenList("\n".join(hypotheses)),    
                                              tokenizer.toTokenList(goal),
                                              tactic)
                              for prev_tactics, hypotheses, goal, tactic in chunk])

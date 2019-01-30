@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.7
 
 import torch
 from typing import Dict, List, Union
@@ -16,6 +16,7 @@ from models import wordbagsvm_classifier
 from models import ngramsvm_classifier
 from models import hyparg_predictor
 from models import pec_predictor
+from models import cec_predictor
 
 predictors = {
     'encdec' : encdecrnn_predictor.EncDecRNNPredictor,
@@ -30,6 +31,7 @@ predictors = {
     'ngramsvm' : ngramsvm_classifier.NGramSVMClassifier,
     'hyparg' : hyparg_predictor.HypArgPredictor,
     'pec' : pec_predictor.PECPredictor,
+    'cec' : cec_predictor.CECPredictor,
 }
 
 def loadPredictor(filename : str, predictor_type : str) -> TacticPredictor:
