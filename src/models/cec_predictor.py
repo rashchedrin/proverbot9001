@@ -172,7 +172,7 @@ class CECPredictor(NeuralClassifier[CECDataset, 'CEClassifier']):
                                 -> torch.FloatTensor:
         hyp_batch, output_batch = \
             cast(Tuple[torch.LongTensor, torch.LongTensor], data_batch)
-        predictionDistribution = model.run(hyp_batch)
+        predictionDistribution = model.run(hyp_batch, len(hyp_batch))
         output_var = maybe_cuda(Variable(output_batch))
         return self._criterion(predictionDistribution, output_var)
 
