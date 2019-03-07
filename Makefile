@@ -32,8 +32,8 @@ setup:
 scrape:
 	mv data/scrape.txt data/scrape.bkp 2>/dev/null || true
 	cd src && \
-	cat ../data/compcert-train-files.txt | $(HEAD_CMD) | \
-	xargs python3 scrape2.py $(FLAGS) -j $(NTHREADS) --output ../data/scrape.txt \
+	cat ../data/compcert-scrapable-files.txt | $(HEAD_CMD) | \
+	xargs ./scrape3.py $(FLAGS) -j $(NTHREADS) --output ../data/scrape.txt \
 				        		 --prelude ../CompCert
 report:
 	($(ENV_PREFIX) ; cat data/compcert-test-files.txt | $(HEAD_CMD) | \
@@ -86,4 +86,5 @@ clean:
 	rm -f log*.txt
 
 clean-lin:
-	fd '.*\.v\.lin' CompCert | xargs rm
+	find CompCert -name "*.lin*" -type f -delete 
+	find CompCert -name "*.scrape*" -type f -delete 

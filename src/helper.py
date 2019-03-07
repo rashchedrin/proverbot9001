@@ -5,6 +5,7 @@ from serapi_instance import AckError, CompletedError, CoqExn, BadResponse
 import linearize_semicolons
 import re
 import os
+import random
 
 from typing import List, Match, Any, Optional, Iterator, Iterable
 
@@ -129,22 +130,67 @@ def hash_file(filename : str) -> str:
             buf = f.read(BLOCKSIZE)
     return hasher.hexdigest()
 
-def try_load_lin(filename : str, verbose:bool=True) -> Optional[List[str]]:
+def try_load_lin(filename : str, extension:str="", verbose:bool=True) -> Optional[List[str]]:
+    full_filename = filename + '.lin'
+    if extension:
+        full_filename += '.' + extension
     if verbose:
         print("Attempting to load cached linearized version from {}"
-              .format(filename + '.lin'))
-    if not os.path.exists(filename + '.lin'):
+              .format(full_filename))
+    if not os.path.exists(full_filename):
         return None
-    file_hash = hash_file(filename)
-    with open(filename + '.lin', 'r') as f:
+    file_hash = hash_file(full_filename)
+    with open(full_filename, 'r') as f:
         if file_hash == f.readline().strip():
             return read_commands_preserve(f.read())
         else:
             return None
 
-def save_lin(commands : List[str], filename : str) -> None:
+def save_lin(commands : List[str], filename : str, extension : str = "") -> None:
     output_file = filename + '.lin'
+    if extension:
+        output_file += '.' + extension
     with open(output_file, 'w') as f:
-        print(hash_file(filename), file=f)
+        print(hash_file(output_file), file=f)
         for command in commands:
             print(command.strip(), file=f)
+
+TRAIN_EXTENSION = 'train'
+TEST_EXTENSION = 'test'
+
+def try_load_lins(filename : str) -> Optional[List[str]]:
+    return try_load_lin(filename, TRAIN_EXTENSION), try_load_lin(filename, TEST_EXTENSION)
+
+def save_lins(train_commands : List[str], test_commands : List[str], filename : str) -> None:
+    save_lin(train_commands, filename, TRAIN_EXTENSION)
+    save_lin(test_commands, filename, TEST_EXTENSION)
+
+def split_commands(commands : List[str]) -> (List[str], List[str]):
+    train_commands = []
+    test_commands = []
+    inside_proof = False
+    inside_train = False
+    for command in commands:
+        if inside_proof:
+            if inside_train:
+                train_commands.append(command)
+            else:
+                test_commands.append(command)
+            if re.match("Qed.", command.strip()):
+                inside_proof = False
+        else:
+            if re.match("Proof.", command.strip()):
+                inside_proof = True
+                if random.random() > 0.1:
+                    inside_train = True
+                    train_commands.append(command)
+                    test_commands.append("Admitted.")
+                else:
+                    inside_train = False
+                    train_commands.append("Admitted.")
+                    test_commands.append(command)
+            else:
+                train_commands.append(command)
+                test_commands.append(command)
+
+    return train_commands, test_commands
