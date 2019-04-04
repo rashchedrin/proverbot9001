@@ -58,7 +58,7 @@ def scrape_file(coqargs : List[str], skip_nochange_tac : bool, debug : bool, inc
         full_filename = prelude + "/" + filename
         train_commands, test_commands = try_load_lins(full_filename)
         if not train_commands:
-            commands = lift_and_linearize(load_commands(full_filename),
+            commands = preprocess_file_commands(load_commands(full_filename),
                                         coqargs, includes, prelude, full_filename, skip_nochange_tac)
             train_commands, test_commands = split_commands(commands)
             save_lins(train_commands, test_commands, full_filename)

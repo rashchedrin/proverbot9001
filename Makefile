@@ -40,10 +40,11 @@ report:
 	xargs ./src/proverbot9001.py static-report -j $(NTHREADS) --prelude ./CompCert $(FLAGS))
 
 train:
-	./src/proverbot9001.py train ngramclass data/scrape.txt data/pytorch-weights.tar $(FLAGS) #--hidden-size $(HIDDEN_SIZE)
+	./src/proverbot9001.py train encclass data/scrape.txt data/pytorch-weights.tar $(FLAGS) #--hidden-size $(HIDDEN_SIZE)
 
 test:
-	./src/proverbot9001.py report -j $(NTHREADS) --prelude ./CompCert ./lib/Parmov.v --predictor=ngramclass
+	($(ENV_PREFIX) ; cat data/compcert-scrapable-files.txt | $(HEAD_CMD) | \
+	xargs ./src/proverbot9001.py dynamic-report -j $(NTHREADS) --prelude ./CompCert $(FLAGS) --weightsfile)
 
 INDEX_FILES=index.js index.css build-index.py
 
