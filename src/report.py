@@ -309,14 +309,15 @@ class Worker(threading.Thread):
 
     def get_commands(self, filename : str) -> List[str]:
         local_filename = self.prelude + "/" + filename
-        loaded_commands = try_load_lin(local_filename)
+        loaded_commands = try_load_lin(local_filename, TEST_EXTENSION)
         if loaded_commands is None:
-            fresh_commands = lift_and_linearize(
-                load_commands_preserve(self.prelude + "/" + filename),
-                self.coqargs, self.includes, self.prelude,
-                filename, self.skip_nochange_tac, debug=self.debug)
-            save_lin(fresh_commands, local_filename)
-            return fresh_commands
+            raise("Error: could not find linearized files")
+            # fresh_commands = lift_and_linearize(
+            #     load_commands_preserve(self.prelude + "/" + filename),
+            #     self.coqargs, self.includes, self.prelude,
+            #     filename, self.skip_nochange_tac, debug=self.debug)
+            # save_lin(fresh_commands, local_filename)
+            # return fresh_commands
         else:
             return loaded_commands
 
