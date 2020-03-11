@@ -822,9 +822,9 @@ class SerapiInstance(threading.Thread):
                      ["Answer", int, list],
                      lambda state_num, contents:
                      match(contents,
-                           ["CoqExn", _, _, _, _],
-                           lambda loc1, loc2, loc3, inner:
-                           raise_(CoqExn(inner)),
+                           ["CoqExn", TAIL],
+                           lambda rest:
+                           raise_(CoqExn("\n".join(searchStrsInMsg(rest)))),
                            ["Added", int, TAIL],
                            lambda state_num, tail: state_num),
                      _, lambda x: raise_(BadResponse(msg)))
@@ -941,7 +941,7 @@ class SerapiInstance(threading.Thread):
 
             new_statenum = \
                 match(normalizeMessage(feedback),
-                      ["Answer", int, ["CoqExn", _, _, _, _]],
+                      ["Answer", int, ["CoqExn", TAIL]],
                       lambda *args: raise_(CoqExn(feedback)),
                       ["Feedback", [['doc_id', int], ['span_id', int], TAIL]],
                       lambda docnum, statenum, *rest: statenum,
@@ -952,8 +952,8 @@ class SerapiInstance(threading.Thread):
                 match(normalizeMessage(cancelled_answer),
                       ["Answer", int, ["Canceled", list]],
                       lambda _, statenums: min(statenums),
-                      ["Answer", int, ["CoqExn", _, _, _, _]],
-                      lambda *args: raise_(CoqExn(cancelled_answer)),
+                      ["Answer", int, ["CoqExn", TAIL]],
+                      lambda rest: raise_(CoqExn("\n".join(searchStrsInMsg(rest)))),
                       _, lambda *args: raise_(BadResponse(cancelled_answer)))
         finally:
             self.get_completed()
