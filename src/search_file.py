@@ -723,6 +723,7 @@ def replay_solution_vfile(args : argparse.Namespace, coq : serapi_instance.Serap
                         if re.match("Reset .*\.", saved_command):
                             commands_in_iter = itertools.chain([loaded_command],
                                                                commands_in_iter)
+                            commands_run = commands_run[:-1]
                             skip_sync_next_lemma = True
                             continue
                         def normalize_command(cmd : str) -> str:
@@ -741,7 +742,7 @@ def replay_solution_vfile(args : argparse.Namespace, coq : serapi_instance.Serap
                                 itertools.chain([loaded_command], commands_in_iter)))
                             coq.run_stmt(loaded_command)
                             num_original_commands_run += len(proof_cmds)
-                            commands_run += proof_cmds
+                            commands_run += proof_cmds[1:]
                             for proof_cmd in tqdm(proof_cmds[1:], unit="tac", file=sys.stdout,
                                                   desc="Running original proof",
                                                   disable=(not args.progress),
@@ -759,6 +760,7 @@ def replay_solution_vfile(args : argparse.Namespace, coq : serapi_instance.Serap
                         else:
                             commands_in_iter = itertools.chain([loaded_command],
                                                                commands_in_iter)
+                            commands_run = commands_run[:-1]
                             skip_sync_next_lemma = False
 
                 else:
