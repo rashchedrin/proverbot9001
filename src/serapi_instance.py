@@ -1428,9 +1428,7 @@ def progn(*args):
     return args[-1]
 
 def lemma_name_from_statement(stmt : str) -> str:
-    if "Goal" in stmt:
-        return ""
-    if "Obligation" in stmt:
+    if "Goal" in stmt or "Obligation" in stmt or "Morphism" in stmt or "Relation" in stmt:
         return ""
     stripped_stmt = kill_comments(stmt).strip()
     lemma_match = re.match(r"\s*(?:" + "|".join(normal_lemma_starting_patterns) + r")\s+([\w']*)(.*)",
