@@ -1422,6 +1422,10 @@ def lemma_name_from_statement(stmt : str) -> str:
     if "Goal" in stmt or "Obligation" in stmt or "Morphism" in stmt or "Relation" in stmt:
         return ""
     stripped_stmt = kill_comments(stmt).strip()
+    derive_match = re.fullmatch(r"\s*Derive\s+([\w'_]+)\s+SuchThat\s+(.*)\s+As\s+([\w']+)\.\s*",
+                                stripped_stmt, flags=re.DOTALL)
+    if derive_match:
+        return derive_match.group(3)
     lemma_match = re.match(r"\s*(?:" + "|".join(normal_lemma_starting_patterns) + r")\s+([\w']*)(.*)",
                            stripped_stmt,
                            flags=re.DOTALL)
