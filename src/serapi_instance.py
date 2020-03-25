@@ -867,6 +867,9 @@ class SerapiInstance(threading.Thread):
                 feedback_message = self.get_message()
         except TimeoutError:
             pass
+        except CoqAnomaly as e:
+            if e.msg != "Timing Out":
+                raise
     def discard_initial_feedback(self) -> None:
         feedback1 = self.get_message()
         feedback2 = self.get_message()
@@ -894,10 +897,14 @@ class SerapiInstance(threading.Thread):
             try:
                 interrupt_response = \
                     loads(self.message_queue.get(timeout=self.timeout))
+                interrupt_response = \
+                    loads(self.message_queue.get(timeout=self.timeout))
             except:
                 self._proc.send_signal(signal.SIGINT)
                 num_breaks += 1
                 try:
+                    interrupt_response = \
+                        loads(self.message_queue.get(timeout=self.timeout))
                     interrupt_response = \
                         loads(self.message_queue.get(timeout=self.timeout))
                 except:
@@ -924,19 +931,7 @@ class SerapiInstance(threading.Thread):
             elif isBreakAnswer(interrupt_response):
                 self.get_completed()
                 raise TimeoutError("")
-            elif match(normalizeMessage(interrupt_response, depth=10),
-                       ["Feedback", [["doc_id", int], ["span_id", int], ["route", int],
-                                     ["contents", ["Message", "Error", [],
-                                                   ["Pp_box", ["Pp_hovbox", int],
-                                                    ["Pp_glue", ["Pp_force_newline", ["Pp_string", "User interrupt."]]]]]]]],
-                       lambda *args: True,
-                       _, lambda *args: False):
-                for i in range(num_breaks):
-                    try:
-                        msg = loads(self.message_queue.get(timeout=self.timeout))
-                    except:
-                        raise CoqAnomaly("Timing out")
-                    assert isBreakAnswer(msg), msg
+            elif "\nUser interrupt." in searchStrsInMsg(normalizeMessage(interrupt_response)):
                 self.get_completed()
                 assert self.message_queue.empty(), self.messages
                 raise TimeoutError("")
@@ -1131,12 +1126,7 @@ def isBreakMessage(msg : 'Sexp') -> bool:
                  "Sys\\.Break", lambda *args: True,
                  _, lambda *args: False)
 def isBreakAnswer(msg : 'Sexp') -> bool:
-    return match(normalizeMessage(msg),
-                 ["Answer", int, ["CoqExn", [], list,
-                                  ["Backtrace", []],
-                                  "Sys\\.Break"]],
-                 lambda *args: True,
-                 _, lambda *args: False)
+    return "Sys\\.Break" in searchStrsInMsg(normalizeMessage(msg))
 
 import contextlib
 from typing import Iterator
