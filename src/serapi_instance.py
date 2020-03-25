@@ -1110,8 +1110,7 @@ class SerapiInstance(threading.Thread):
             elif self.section_stack and self.section_stack[-1] == end_match.group(1):
                 self.section_stack.pop()
             else:
-                eprint(f"Unrecognized End \"{cmd}\"")
-                assert False
+                assert False, f"Unrecognized End \"{cmd}\", top of module stack is {self.module_stack[-1]}"
 
 
     def kill(self) -> None:
