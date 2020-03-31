@@ -61,9 +61,10 @@ def train(args):
     parser.add_argument("model", choices=list(predict_tactic.trainable_modules.keys()) +
                         list(evaluate_state.trainable_modules.keys()))
     args_values = parser.parse_args(args[:1])
-    predict_tactic.trainable_modules.get(args_values.model,
-                                         evaluate_state.trainable_modules
-                                         [args_values.model])(args[1:])
+    module = predict_tactic.trainable_modules.get(args_values.model)
+    if not module:
+        module = evaluate_state.trainable_modules[args_values.model]
+    module(args[1:])
 
 def get_data(args : List[str]) -> None:
     parser = argparse.ArgumentParser(description=
