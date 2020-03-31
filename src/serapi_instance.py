@@ -1169,6 +1169,7 @@ normal_lemma_starting_patterns = [
     "Function",
     "Property"]
 special_lemma_starting_patterns = [
+    "Derive",
     "Goal",
     "Add Morphism",
     "Next Obligation",
