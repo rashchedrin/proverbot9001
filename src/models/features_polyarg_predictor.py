@@ -590,10 +590,6 @@ class FeaturesPolyargPredictor(
 
         return ((metadata, state) for state in optimize_checkpoints(tensors, arg_values, model,
                                                                     lambda batch_tensors, model:
-                                                                    self._get_batch_prediction_loss(arg_values,
-                                                                                                    batch_tensors,
-                                                                                                    model)))
-
         # tokenizer, embedding, word_features, vec_features = metadata
         # save_checkpoints("polyarg",
         #                  metadata, arg_values,
@@ -612,6 +608,10 @@ class FeaturesPolyargPredictor(
     #                                 self._getBatchPredictionLoss(arg_values,
     #                                                              batch_tensors,
     #                                                              model))
+                                                                    self._getBatchPredictionLoss(arg_values,
+                                                                                                 batch_tensors,
+                                                                                                 model)))
+
     def load_saved_state(self,
                          args : Namespace,
                          metadata : Any,
