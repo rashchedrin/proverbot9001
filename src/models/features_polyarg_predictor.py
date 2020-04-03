@@ -494,6 +494,7 @@ class FeaturesPolyargPredictor(
         parser.add_argument("--no-hyp-rnn", dest="hyp_rnn", action="store_false")
         parser.add_argument("--no-goal-rnn", dest="goal_rnn", action="store_false")
         parser.add_argument("--replace-rnns-with-dnns", action="store_true")
+        parser.add_argument("--print-tensors", action="store_true")
 
     def _encode_data(self, data : RawDataset, arg_values : Namespace) \
         -> Tuple[FeaturesPolyArgDataset, Tuple[Tokenizer, Embedding,
@@ -537,6 +538,7 @@ class FeaturesPolyargPredictor(
                        torch.FloatTensor(vec_features),
                        torch.LongTensor(tactic_stem_indices),
                        torch.LongTensor(arg_indices)]
+            eprint(tensors, guard=arg_values.print_tensors)
 
         with print_time("Building the model", guard=arg_values.verbose):
             model = self._get_model(arg_values,
