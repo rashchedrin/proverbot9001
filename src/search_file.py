@@ -161,7 +161,7 @@ def parse_arguments(args_list : List[str]) -> Tuple[argparse.Namespace,
                         dest='check_consistent')
     parser.add_argument('--count-failing-predictions', action='store_true',
                         dest="count_failing_predictions")
-    parser.add_argument('--no-count-softfail-predictions', action='store_false',
+    parser.add_argument('--count-softfail-predictions', action='store_true',
                         dest="count_softfail_predictions")
     parser.add_argument("--relevant-lemmas", dest="relevant_lemmas",
                         choices=['local', 'hammer', 'searchabout'],
