@@ -98,12 +98,6 @@ def main(arg_list : List[str], bar_idx : int) -> None:
     base = Path2(os.path.dirname(os.path.abspath(__file__)))
     coqargs = ["sertop", "--implicit"]
 
-    try:
-        with open(args.prelude + "/_CoqProject", 'r') as includesfile:
-            includes = includesfile.read()
-    except FileNotFoundError:
-        eprint("Didn't find a _CoqProject file in prelude dir")
-        includes = ""
     if not args.output_dir.exists():
        args.output_dir.makedirs()
 
@@ -114,7 +108,7 @@ def main(arg_list : List[str], bar_idx : int) -> None:
             srcpath = base.parent / 'reports' / filename
             srcpath.copyfile(destpath)
 
-    search_file(args, coqargs, includes, predictor, bar_idx)
+    search_file(args, coqargs, predictor, bar_idx)
 
 def parse_arguments(args_list : List[str]) -> Tuple[argparse.Namespace,
                                                     argparse.ArgumentParser]:
@@ -194,7 +188,7 @@ def append_time(args : argparse.Namespace, action : str, seconds : float):
             f.write(f"{action}: {datetime.timedelta(seconds=seconds)}\n")
 
 def search_file(args : argparse.Namespace, coqargs : List[str],
-                includes : str, predictor : TacticPredictor,
+                predictor : TacticPredictor,
                 bar_idx : int) -> None:
     global obligation_number
     obligation_number = 0
@@ -229,7 +223,7 @@ def search_file(args : argparse.Namespace, coqargs : List[str],
                        f"Overwriting (interrupt to cancel).")
 
     if args.linearize:
-        commands_in = linearize_semicolons.get_linearized(args, coqargs, includes,
+        commands_in = linearize_semicolons.get_linearized(args, coqargs,
                                                           bar_idx, str(args.filename))
     else:
         commands_in = serapi_instance.load_commands_preserve(args, bar_idx,
@@ -331,7 +325,7 @@ def search_file(args : argparse.Namespace, coqargs : List[str],
                 # print("Starting a coq instance...")
                 with serapi_instance.SerapiContext(coqargs,
                                                    serapi_instance.get_module_from_filename(args.filename),
-                                                   includes, args.prelude, use_hammer=args.use_hammer) as coq:
+                                                   args.prelude, use_hammer=args.use_hammer) as coq:
                     coq.verbose = args.verbose
                     try_run_prelude(args, coq)
                     if args.progress:
