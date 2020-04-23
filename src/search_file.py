@@ -167,6 +167,7 @@ def parse_arguments(args_list : List[str]) -> Tuple[argparse.Namespace,
                         choices=['local', 'hammer', 'searchabout'],
                         default='local')
     parser.add_argument("--command-limit", type=int, default=None)
+    parser.add_argument("--proof", default=None)
     known_args, unknown_args = parser.parse_known_args(args_list)
     return known_args, parser
 
@@ -396,7 +397,10 @@ def search_file(args : argparse.Namespace, coqargs : List[str],
                         num_proofs += 1
                         initial_context = coq.proof_context
                         # Try to search
-                        if lemma_statement in lemmas_to_skip:
+                        if lemma_statement in lemmas_to_skip or \
+                           (args.proof and
+                            serapi_instance.lemma_name_from_statement(lemma_statement)
+                            != args.proof):
                             search_status = SearchStatus.FAILURE
                             tactic_solution : Optional[List[TacticInteraction]] = []
                         else:
