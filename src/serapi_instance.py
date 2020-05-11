@@ -260,7 +260,7 @@ class SerapiInstance(threading.Thread):
 
         # Set up the message queue, which we'll populate with the
         # messages from serapi.
-        self.message_queue = queue.Queue() # type: queue.Queue[Sexp]
+        self.message_queue = queue.Queue() # type: queue.Queue[str]
         # Set the debug flag to default to false.
         self.verbose = 0
         # Set the "extra quiet" flag (don't print on failures) to false
@@ -616,11 +616,11 @@ class SerapiInstance(threading.Thread):
             elif "NoSuchGoals" in coqexn_msg:
                 self.get_completed()
                 self.cancel_failed()
-                raise NoSuchGoalError()
+                raise NoSuchGoalError("")
             elif "Invalid_argument" in coqexn_msg:
                 raise ParseError(f"Invalid argument in {stmt}")
             elif "Not_found" in coqexn_msg:
-                self.cancel_failed(),
+                self.cancel_failed()
                 raise e
             elif "Overflowed" in coqexn_msg or "Stack overflow" in coqexn_msg:
                 self.get_completed()
@@ -674,14 +674,14 @@ class SerapiInstance(threading.Thread):
     def sexpToTermStr(self, sexp) -> str:
         return self.sexpStrToTermStr(dumps(sexp))
     def parseSexpHypStr(self, sexp_str: str) -> str:
-        var_sexps_str, mid_str, term_sexp_str = parseSexpOneLevel(sexp_str)
+        var_sexps_str, mid_str, term_sexp_str = cast(List[str], parseSexpOneLevel(sexp_str))
         def get_id(var_pair_str : str) -> str:
-            id_possibly_quoted = re.match("\(Id\s*(.*)\)", var_pair_str).group(1)
+            id_possibly_quoted = unwrap(re.match("\(Id\s*(.*)\)", var_pair_str)).group(1)
             if id_possibly_quoted[0] == "\"" and id_possibly_quoted[-1] == "\"":
                 return id_possibly_quoted[1:-1]
             return id_possibly_quoted
         ids_str = ",".join([get_id(var_pair_str) for
-                            var_pair_str in parseSexpOneLevel(var_sexps_str)])
+                            var_pair_str in cast(List[str], parseSexpOneLevel(var_sexps_str))])
         term_str = self.sexpStrToTermStr(term_sexp_str)
         return f"{ids_str} : {term_str}"
     def parseSexpHyp(self, sexp) -> str:
@@ -696,7 +696,7 @@ class SerapiInstance(threading.Thread):
             goal_match.group(1, 2, 3)
         goal_str = self.sexpStrToTermStr(goal_term_str)
         hyps = [self.parseSexpHypStr(hyp_str) for hyp_str in
-                parseSexpOneLevel(hyps_list_str)]
+                cast(List[str], parseSexpOneLevel(hyps_list_str))]
         return Obligation(hyps, goal_str)
 
     def parseSexpGoal(self, sexp) -> Obligation:
@@ -959,10 +959,10 @@ class SerapiInstance(threading.Thread):
                 self.get_completed()
                 for i in range(num_breaks):
                     try:
-                        msg = loads(self.message_queue.get(timeout=self.timeout))
+                        after_interrupt_msg = loads(self.message_queue.get(timeout=self.timeout))
                     except:
                         raise CoqAnomaly("Timing out")
-                    assert isBreakMessage(msg), msg
+                    assert isBreakMessage(after_interrupt_msg), after_interrupt_msg
                 assert self.message_queue.empty(), self.messages
                 return dumps(interrupt_response)
             elif isBreakMessage(interrupt_response):
@@ -1048,7 +1048,8 @@ class SerapiInstance(threading.Thread):
             return []
 
     def get_enter_goal_context(self) -> None:
-        self.proof_context = ProofContext(self.proof_context.fg_goals[0],
+        assert self.proof_context
+        self.proof_context = ProofContext([self.proof_context.fg_goals[0]],
                                           self.proof_context.bg_goals +
                                           self.proof_context.fg_goals[1:],
                                           self.proof_context.shelved_goals,
@@ -1079,21 +1080,21 @@ class SerapiInstance(threading.Thread):
                     raise BadResponse(context_str)
                 fg_goals_str, bg_goals_str, shelved_goals_str, given_up_goals_str = \
                     goals_match.groups()
-                unparsed_levels = parseSexpOneLevel(bg_goals_str)
+                unparsed_levels = cast(List[str], parseSexpOneLevel(bg_goals_str))
                 parsed2 = [uuulevel
                            for ulevel in unparsed_levels
-                           for uulevel in parseSexpOneLevel(ulevel)
-                           for uuulevel in parseSexpOneLevel(uulevel)]
+                           for uulevel in cast(List[str], parseSexpOneLevel(ulevel))
+                           for uuulevel in cast(List[str], parseSexpOneLevel(uulevel))]
                 bg_goals = [self.parseSexpGoalStr(bg_goal_str)
                             for bg_goal_str in parsed2]
                 self.proof_context = ProofContext(
                     [self.parseSexpGoalStr(goal)
-                     for goal in parseSexpOneLevel(fg_goals_str)],
+                     for goal in cast(List[str], parseSexpOneLevel(fg_goals_str))],
                     bg_goals,
                     [self.parseSexpGoalStr(shelved_goal)
-                     for shelved_goal in parseSexpOneLevel(shelved_goals_str)],
+                     for shelved_goal in cast(List[str], parseSexpOneLevel(shelved_goals_str))],
                     [self.parseSexpGoalStr(given_up_goal)
-                     for given_up_goal in parseSexpOneLevel(given_up_goals_str)])
+                     for given_up_goal in cast(List[str], parseSexpOneLevel(given_up_goals_str))])
         except CoqExn:
             self.send_acked("(Query ((pp ((pp_format PpStr)))) Goals)")
 
@@ -1128,7 +1129,7 @@ class SerapiInstance(threading.Thread):
         assert self.message_queue.empty(), self.messages
         return answer
 
-    def run_into_next_proof(self, commands : List[str]) -> Tuple[List[str], List[str]]:
+    def run_into_next_proof(self, commands : List[str]) -> Optional[Tuple[List[str], List[str]]]:
         assert not self.proof_context, "We're already in a proof"
         commands_iter = iter(commands)
         commands_run = []
@@ -1137,8 +1138,10 @@ class SerapiInstance(threading.Thread):
             commands_run.append(command)
             if self.proof_context:
                 return list(commands_iter), commands_run
+        return None
 
-    def finish_proof(self, commands : List[str]) -> Tuple[List[str], List[str]]:
+
+    def finish_proof(self, commands : List[str]) -> Optional[Tuple[List[str], List[str]]]:
         assert self.proof_context, "We're already out of a proof"
         commands_iter = iter(commands)
         commands_run = []
@@ -1147,9 +1150,11 @@ class SerapiInstance(threading.Thread):
             commands_run.append(command)
             if not self.proof_context:
                 return list(commands_iter), commands_run
+        return None
 
 
     def run(self) -> None:
+        assert self._fout
         while(True):
             line = self._fout.readline().decode('utf-8')
             if line == '': break
@@ -1179,6 +1184,7 @@ class SerapiInstance(threading.Thread):
 
 
     def kill(self) -> None:
+        assert self._proc.stdout
         self._proc.terminate()
         self._proc.stdout.close()
         threading.Thread.join(self)
@@ -1229,7 +1235,7 @@ lemma_starting_patterns = normal_lemma_starting_patterns + special_lemma_startin
 
 def possibly_starting_proof(command : str) -> bool:
     stripped_command = kill_comments(command).strip()
-    return re.match("(" + "|".join(lemma_starting_patterns) + ")\s*", stripped_command)
+    return bool(re.match("(" + "|".join(lemma_starting_patterns) + ")\s*", stripped_command))
 
 def ending_proof(command : str) -> bool:
     stripped_command = kill_comments(command).strip()
@@ -1572,7 +1578,7 @@ from tqdm import tqdm
 from typing import Pattern, Match
 def read_commands_preserve(args : argparse.Namespace, file_idx : int,
                            contents : str) -> List[str]:
-    result = []
+    result : List[str] = []
     cur_command = ""
     comment_depth = 0
     in_quote = False
@@ -1691,7 +1697,7 @@ def parseSexpOneLevel(sexp_str : str) -> Union[List[str], int, Symbol]:
                     items.append(sexp_str[item_start_pos:cur_pos])
                     item_start_pos = cur_pos
     elif re.fullmatch("\d+", sexp_str):
-        return float(sexp_str)
+        return int(sexp_str)
     elif re.fullmatch("\w+", sexp_str):
         return Symbol(sexp_str)
     else:
@@ -1709,7 +1715,7 @@ def searchStrsInMsg(sexp) -> List[str]:
                     for substr in substrs]
     return []
 
-def get_module_from_filename(filename : Path2) -> str:
+def get_module_from_filename(filename : Union[Path2, str]) -> str:
     return Path2(filename).stem
 
 def subgoalSurjective(newsub : Obligation, oldsub : Obligation) -> bool:
