@@ -27,13 +27,13 @@ import datetime
 import time
 import csv
 from typing import (List, Tuple, NamedTuple, Optional, Dict,
-                    Union, Iterator, Callable, Iterable)
+                    Union, Iterator, Callable, Iterable, cast)
 
 from models.tactic_predictor import TacticPredictor
 from predict_tactic import (static_predictors, loadPredictorByFile,
                             loadPredictorByName)
 import serapi_instance
-from serapi_instance import ProofContext, Obligation, SerapiInstance
+from serapi_instance import ProofContext, Obligation, SerapiInstance, SerapiException
 
 import linearize_semicolons
 # import syntax
@@ -562,7 +562,10 @@ def write_lemma_button(lemma_statement : str, module : Optional[str],
     global obligation_number
     lemma_name = \
         serapi_instance.lemma_name_from_statement(lemma_statement)
-    module_prefix = escape_lemma_name(module)
+    if module:
+        module_prefix = escape_lemma_name(module)
+    else:
+        module_prefix = ""
     if lemma_name == "Obligation":
         obligation_number += 1
         fullname = module_prefix + lemma_name + str(obligation_number)
@@ -905,13 +908,14 @@ def numNodesInTree(branching_factor : int, depth : int):
     return result
 def time_on_path(node : LabeledNode) -> float:
     if node.previous == None:
-        return node.time_taken
+        return unwrap(node.time_taken)
     else:
-        return time_on_path(node.previous) + node.time_taken
+        return time_on_path(unwrap(node.previous)) + unwrap(node.time_taken)
 def tryPrediction(args : argparse.Namespace,
                   coq : serapi_instance.SerapiInstance,
                   prediction : str,
-                  previousNode : LabeledNode) -> Tuple[ProofContext, int, int, int, Optional[Exception], float]:
+                  previousNode : LabeledNode) -> Tuple[ProofContext, int, int, int,
+                                                       Optional[SerapiException], float, bool]:
     coq.quiet = True
     time_left = max(args.max_proof_time - time_on_path(previousNode), 0)
     start_time = time.time()
@@ -922,7 +926,7 @@ def tryPrediction(args : argparse.Namespace,
     except (serapi_instance.TimeoutError, serapi_instance.ParseError,
             serapi_instance.CoqExn, serapi_instance.OverflowError,
             serapi_instance.UnrecognizedError) as e:
-        return coq.proof_context, 0, 0, 0, e, time.time() - start_time, False
+        return unwrap(coq.proof_context), 0, 0, 0, e, time.time() - start_time, False
 
     time_taken = time.time() - start_time
     num_stmts = 1
@@ -1023,13 +1027,13 @@ def dfs_proof_search_with_graph(lemma_statement : str,
                     continue
                 num_successful_predictions += 1
                 pbar.update(1)
-                assert pbar.n > 0
+                assert cast(TqdmSpy, pbar).n > 0
 
-                predictionNode = g.mkNode(prediction, proof_context_before,
+                predictionNode = g.mkNode(prediction, unwrap(proof_context_before),
                                           current_path[-1])
                 predictionNode.time_taken = time_taken
                 if unshelved:
-                    predictionNode = g.mkNode("Unshelve.", proof_context_before,
+                    predictionNode = g.mkNode("Unshelve.", unwrap(proof_context_before),
                                               predictionNode)
                     predictionNode.time_taken = 0
 
@@ -1098,7 +1102,10 @@ def dfs_proof_search_with_graph(lemma_statement : str,
                  dynamic_ncols=True, bar_format=mybarfmt) as pbar:
         command_list, _ = search(pbar, [g.start_node], [], 0)
         pbar.clear()
-    module_prefix = escape_lemma_name(module_name)
+    if module_name:
+        module_prefix = escape_lemma_name(module_name)
+    else:
+        module_prefix = ""
     if lemma_name == "Obligation":
         obligation_number += 1
         g.draw(f"{args.output_dir}/{module_prefix}{lemma_name}{obligation_number}.svg")
