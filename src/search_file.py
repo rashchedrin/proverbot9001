@@ -176,12 +176,14 @@ def get_predictor(parser : argparse.ArgumentParser,
         sys.exit(1)
     return predictor
 
-def reset_times(args : argparse.Namespace):
+
+def reset_times(args: argparse.Namespace):
     if args.proof_times:
         with args.proof_times.open('w'):
             pass
 
-def append_time(args : argparse.Namespace, action : str, seconds : float):
+
+def append_time(args: argparse.Namespace, action: str, seconds: float):
     if args.proof_times:
         with args.proof_times.open('a') as f:
             f.write(f"{action}: {datetime.timedelta(seconds=seconds)}\n")
