@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from tqdm import tqdm
 from yattag import Doc
 from pathlib_revised import Path2
+from enum import Enum, auto
 Tag = Callable[..., Doc.Tag]
 Text = Callable[..., None]
 Line = Callable[..., None]
@@ -53,43 +54,52 @@ Line = Callable[..., None]
 details_css = "details.css"
 details_javascript = "search-details.js"
 
-class ReportStats(NamedTuple):
-    filename : str
-    num_proofs : int
-    num_proofs_failed : int
-    num_proofs_completed : int
 
-from enum import Enum, auto
+class ReportStats(NamedTuple):
+    filename: str
+    num_proofs: int
+    num_proofs_failed: int
+    num_proofs_completed: int
+
+
 class SearchStatus(Enum):
     SUCCESS = auto()
     INCOMPLETE = auto()
     FAILURE = auto()
 
+
 class VernacBlock(NamedTuple):
-    commands : List[str]
+    commands: List[str]
+
 
 class TacticInteraction(NamedTuple):
-    tactic : str
-    context_before : ProofContext
+    tactic: str
+    context_before: ProofContext
+
 
 class ProofBlock(NamedTuple):
-    lemma_statement : str
-    module : Optional[str]
-    status : SearchStatus
-    predicted_tactics : List[TacticInteraction]
-    original_tactics : List[TacticInteraction]
+    lemma_statement: str
+    module: Optional[str]
+    status: SearchStatus
+    predicted_tactics: List[TacticInteraction]
+    original_tactics: List[TacticInteraction]
+
 
 class ArgsMismatchException(Exception):
     pass
+
+
 class SourceChangedException(Exception):
     pass
 
+
 DocumentBlock = Union[VernacBlock, ProofBlock]
 
-predictor : TacticPredictor
-obligation_number : int
+predictor: TacticPredictor
+obligation_number: int
 
-def main(arg_list : List[str], bar_idx : int) -> None:
+
+def main(arg_list: List[str], bar_idx: int) -> None:
     sys.setrecursionlimit(4500)
     global predictor
 
@@ -99,7 +109,7 @@ def main(arg_list : List[str], bar_idx : int) -> None:
     coqargs = ["sertop", "--implicit"]
 
     if not args.output_dir.exists():
-       args.output_dir.makedirs()
+        args.output_dir.makedirs()
 
     for filename in [details_css, details_javascript]:
         destpath = args.output_dir / filename
@@ -109,11 +119,12 @@ def main(arg_list : List[str], bar_idx : int) -> None:
 
     search_file(args, coqargs, predictor, bar_idx)
 
-def parse_arguments(args_list : List[str]) -> Tuple[argparse.Namespace,
-                                                    argparse.ArgumentParser]:
+
+def parse_arguments(args_list: List[str]) -> Tuple[argparse.Namespace,
+                                                   argparse.ArgumentParser]:
     parser = argparse.ArgumentParser(
-        description=
-        "Produce an html report from attempting to complete proofs using Proverbot9001.")
+        description="Produce an html report from attempting "
+        "to complete proofs using Proverbot9001.")
     parser.add_argument("--prelude", default=".")
     parser.add_argument("--output", "-o", dest="output_dir",
                         help="output data folder name",
@@ -123,9 +134,11 @@ def parse_arguments(args_list : List[str]) -> Tuple[argparse.Namespace,
                         action="count", default=0)
     parser.add_argument("--progress", "-P", help="show progress of files",
                         action='store_true')
-    parser.add_argument("--read-progress", "-p", help="show progress of reading the file",
+    parser.add_argument("--read-progress", "-p",
+                        help="show progress of reading the file",
                         action='store_true')
-    parser.add_argument("--hardfail", "-f", help="fail when hitting a coq anomaly",
+    parser.add_argument("--hardfail", "-f",
+                        help="fail when hitting a coq anomaly",
                         action='store_true')
     parser.add_argument('--context-filter', dest="context_filter", type=str,
                         default=None)
@@ -134,13 +147,19 @@ def parse_arguments(args_list : List[str]) -> Tuple[argparse.Namespace,
                         default=None)
     parser.add_argument("--no-truncate_semicolons", dest="truncate_semicolons",
                         action='store_false')
-    parser.add_argument("--search-width", dest="search_width", type=int, default=5)
-    parser.add_argument("--max-attempts", dest="max_attempts", type=int, default=10)
-    parser.add_argument("--search-depth", dest="search_depth", type=int, default=6)
+    parser.add_argument("--search-width", dest="search_width", type=int,
+                        default=5)
+    parser.add_argument("--max-attempts", dest="max_attempts", type=int,
+                        default=10)
+    parser.add_argument("--search-depth", dest="search_depth", type=int,
+                        default=6)
     parser.add_argument("--no-resume", dest="resume", action='store_false')
-    parser.add_argument("--overwrite-mismatch", dest="overwrite_mismatch", action='store_true')
-    parser.add_argument("--max-print-term", dest="max_print_term", type=int, default=None)
-    parser.add_argument("--max-print-hyps", dest="max_print_hyps", type=int, default=None)
+    parser.add_argument("--overwrite-mismatch", dest="overwrite_mismatch",
+                        action='store_true')
+    parser.add_argument("--max-print-term", dest="max_print_term", type=int,
+                        default=None)
+    parser.add_argument("--max-print-hyps", dest="max_print_hyps", type=int,
+                        default=None)
     parser.add_argument("--max-print-subgoals", dest="max_print_subgoals",
                         type=int, default=2)
     parser.add_argument("--max-proof-time", dest="max_proof_time",
@@ -148,7 +167,8 @@ def parse_arguments(args_list : List[str]) -> Tuple[argparse.Namespace,
     parser.add_argument("--linearize", action='store_true')
     parser.add_argument("--proof-times", default=None, type=Path2)
     parser.add_argument('filename', help="proof file name (*.v)", type=Path2)
-    parser.add_argument("--use-hammer", help="Use Hammer tactic after every predicted tactic",
+    parser.add_argument("--use-hammer",
+                        help="Use Hammer tactic after every predicted tactic",
                         action='store_const', const=True, default=False)
     parser.add_argument('--no-check-consistent', action='store_false',
                         dest='check_consistent')
@@ -163,9 +183,10 @@ def parse_arguments(args_list : List[str]) -> Tuple[argparse.Namespace,
     known_args, unknown_args = parser.parse_known_args(args_list)
     return known_args, parser
 
-def get_predictor(parser : argparse.ArgumentParser,
-                  args : argparse.Namespace) -> TacticPredictor:
-    predictor : TacticPredictor
+
+def get_predictor(parser: argparse.ArgumentParser,
+                  args: argparse.Namespace) -> TacticPredictor:
+    predictor: TacticPredictor
     if args.weightsfile:
         predictor = loadPredictorByFile(args.weightsfile)
     elif args.predictor:
