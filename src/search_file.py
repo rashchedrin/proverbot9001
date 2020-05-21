@@ -101,7 +101,6 @@ def main(arg_list : List[str], bar_idx : int) -> None:
     if not args.output_dir.exists():
        args.output_dir.makedirs()
 
-    context_filter = args.context_filter or dict(predictor.getOptions())["context_filter"]
     for filename in [details_css, details_javascript]:
         destpath = args.output_dir / filename
         if not destpath.exists():
