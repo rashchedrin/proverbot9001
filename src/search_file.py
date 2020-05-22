@@ -115,6 +115,7 @@ class SearchGraph:
     def addPredictions(self, src : LabeledNode, context_before : ProofContext,
                        predictions : List[str]) -> List[LabeledNode]:
         return [self.mkNode(pred, context_before, src) for pred in predictions]
+
     def mkNode(self, prediction : str, context_before : ProofContext,
                previous_node : Optional[LabeledNode],
                **kwargs) -> LabeledNode:
@@ -125,6 +126,7 @@ class SearchGraph:
         if previous_node:
             self.__graph.add_edge(previous_node.node_id, newNode.node_id, **kwargs)
         return newNode
+
     def mkQED(self, predictionNode : LabeledNode):
         qedNode = self.mkNode("QED", ProofContext([],[],[],[]),
                               predictionNode,
@@ -986,6 +988,7 @@ class TqdmSpy(tqdm):
         super().update(value);
 
 from search_dfs import dfs_explicit_stack_proof_search_with_graph
+from search_dfs import dfs_proof_search_with_graph
 
 def attempt_search(args : argparse.Namespace,
                    lemma_statement : str,

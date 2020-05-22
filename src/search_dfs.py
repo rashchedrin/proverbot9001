@@ -175,6 +175,24 @@ def cancel_last_statements(coq: serapi_instance.SerapiInstance,
         coq.cancel_last()
 
 
+def cancel_until_state(coq: serapi_instance.SerapiInstance,
+                       desired_state: int,
+                       args: argparse.Namespace,
+                       msg: Optional[str] = None):
+    if msg:
+        eprint(f"Cancelling until {desired_state} statements "
+               f"because {msg}.", guard=args.verbose >= 2)
+    while coq.cur_state != desired_state:
+        coq.cancel_last()
+
+
+def goto_state_fake(coq: serapi_instance.SerapiInstance,
+               desired_state: int,
+               args: argparse.Namespace,
+               msg: Optional[str] = None):
+    return cancel_until_state(coq, desired_state, args, msg)
+
+
 def predict_k_tactics(tactic_context_before, k):
     return [prediction.prediction for prediction in
             search_file.predictor.predictKTactics(tactic_context_before, k)]
@@ -324,15 +342,18 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
     lemma_name = serapi_instance.lemma_name_from_statement(lemma_statement)
     g = SearchGraph(lemma_name)
     hasUnexploredNode = False
+    parent_states = {}
 
     def search(pbar: tqdm,
                current_path: List[LabeledNode],
                subgoal_distance_stack: List[int],
                extra_depth: int,
                coq: serapi_instance.SerapiInstance,
+               search_origin_state:int,
                ) -> SubSearchResult:
 
         nonlocal hasUnexploredNode
+        goto_state_fake(coq, search_origin_state, args)
         relevant_lemmas = get_relevant_lemmas(args, coq)
         tactic_context_before = TacticContext(relevant_lemmas, coq.prev_tactics, coq.hypotheses, coq.goals)
         predictions = predict_k_tactics(tactic_context_before, args.max_attempts)
@@ -340,11 +361,11 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
         if coq.use_hammer:
             predictions = add_hammer_commands(predictions)
         num_successful_predictions = 0
-
         for prediction in predictions:
             if num_successful_predictions >= args.search_width:
                 break
             try:
+                parent_state = coq.cur_state
                 context_after, num_stmts, \
                 subgoals_closed, subgoals_opened, \
                 error, time_taken = \
@@ -353,6 +374,7 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
                     if args.count_failing_predictions:
                         num_successful_predictions += 1
                     continue
+                parent_states[coq.cur_state] = parent_state
                 num_successful_predictions += 1
                 pbar.update(1)
 
@@ -362,35 +384,27 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
                 # Handle stop conditions
                 new_distance_stack, new_extra_depth = update_distance_stack(extra_depth, subgoal_distance_stack,
                                                                             subgoals_closed, subgoals_opened)
-                depth_limit = args.search_depth + new_extra_depth
-                if completed_proof(coq):
-                    solution = g.mkQED(prediction_node)
-                    return SubSearchResult(solution, subgoals_closed)
-                if contextInPath(context_after, current_path[1:] + [prediction_node]):
-                    if not args.count_softfail_predictions:
-                        num_successful_predictions -= 1
-                    g.setNodeColor(prediction_node, "orange")
-                    cancel_last_statements(coq, num_stmts, args, "resulting context is in current path")
+                cancel_reason, num_successful_predictions, return_result = \
+                    manage_stop_conditions(context_after, coq, current_path, new_extra_depth,
+                                           num_successful_predictions, prediction_node, subgoals_closed)
+                if cancel_reason is not None:
+                    parent = parent_states[coq.cur_state]
+                    goto_state_fake(coq, parent, args, cancel_reason)
+                if return_result is not None:
+                    return return_result
+                if cancel_reason is not None:
                     continue
-                if contextIsBig(context_after):
-                    g.setNodeColor(prediction_node, "orange4")
-                    cancel_last_statements(coq, num_stmts, args, "resulting context has too big a goal")
-                    continue
-                if len(current_path) >= depth_limit:
-                    hasUnexploredNode = True
-                    cancel_last_statements(coq, num_stmts, args, "we hit the depth limit")
-                    if subgoals_closed > 0:
-                        return SubSearchResult(None, subgoals_closed)
-                    continue
-
                 # Run recursion
+                next_search_origin = coq.cur_state
                 sub_search_result = search(pbar, current_path + [prediction_node],
-                                           new_distance_stack, new_extra_depth, coq)
-                cancel_last_statements(coq, num_stmts, args, "we finished subsearch")
+                                           new_distance_stack, new_extra_depth, coq, next_search_origin)
+                parent = parent_states[coq.cur_state]
+                goto_state_fake(coq, parent, args, "we finished subsearch")
+
                 if sub_search_result.solution or \
                         sub_search_result.solved_subgoals > subgoals_opened:
                     new_subgoals_closed = sub_search_result.solved_subgoals \
-                                          + subgoals_closed - subgoals_opened # what is it?
+                                          + subgoals_closed - subgoals_opened  # what is it?
                     return SubSearchResult(sub_search_result.solution,
                                            new_subgoals_closed)
                 if subgoals_closed > 0:  # what does it mean?
@@ -404,6 +418,30 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
                 raise
         return SubSearchResult(None, 0)  # ran out of predictions.
 
+    def manage_stop_conditions(context_after, coq, current_path, new_extra_depth, num_successful_predictions,
+                               prediction_node, subgoals_closed):
+        nonlocal hasUnexploredNode
+        cancel_reason = None
+        return_result = None
+        depth_limit = args.search_depth + new_extra_depth
+        if completed_proof(coq):
+            solution = g.mkQED(prediction_node)
+            return_result = SubSearchResult(solution, subgoals_closed)
+        elif contextInPath(context_after, current_path[1:] + [prediction_node]):
+            if not args.count_softfail_predictions:
+                num_successful_predictions -= 1
+            g.setNodeColor(prediction_node, "orange")
+            cancel_reason = "resulting context is in current path"
+        elif contextIsBig(context_after):
+            g.setNodeColor(prediction_node, "orange4")
+            cancel_reason = "resulting context has too big a goal"
+        elif len(current_path) >= depth_limit:
+            hasUnexploredNode = True
+            cancel_reason = "we hit the depth limit"
+            if subgoals_closed > 0:
+                return_result = SubSearchResult(None, subgoals_closed)
+        return cancel_reason, num_successful_predictions, return_result
+
     # Run search, and draw some interface
     total_nodes = numNodesInTree(args.search_width,
                                  args.search_depth + 2) - 1
@@ -413,7 +451,7 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
                  leave=False,
                  position=((bar_idx * 2) + 1),
                  dynamic_ncols=True, bar_format=mybarfmt) as pbar:
-        command_list, _ = search(pbar, [g.start_node], [], 0, coq)
+        command_list, _ = search(pbar, [g.start_node], [], 0, coq, coq.cur_state)
         pbar.clear()
     module_prefix = escape_lemma_name(module_name)
 
