@@ -328,7 +328,8 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
     def search(pbar: tqdm,
                current_path: List[LabeledNode],
                subgoal_distance_stack: List[int],
-               extra_depth: int
+               extra_depth: int,
+               coq: serapi_instance.SerapiInstance,
                ) -> SubSearchResult:
 
         nonlocal hasUnexploredNode
@@ -339,6 +340,7 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
         if coq.use_hammer:
             predictions = add_hammer_commands(predictions)
         num_successful_predictions = 0
+
         for prediction in predictions:
             if num_successful_predictions >= args.search_width:
                 break
@@ -383,17 +385,15 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
 
                 # Run recursion
                 sub_search_result = search(pbar, current_path + [prediction_node],
-                                           new_distance_stack, new_extra_depth)
+                                           new_distance_stack, new_extra_depth, coq)
                 cancel_last_statements(coq, num_stmts, args, "we finished subsearch")
                 if sub_search_result.solution or \
                         sub_search_result.solved_subgoals > subgoals_opened:
-                    new_subgoals_closed = \
-                        subgoals_closed + \
-                        sub_search_result.solved_subgoals - \
-                        subgoals_opened
+                    new_subgoals_closed = sub_search_result.solved_subgoals \
+                                          + subgoals_closed - subgoals_opened # what is it?
                     return SubSearchResult(sub_search_result.solution,
                                            new_subgoals_closed)
-                if subgoals_closed > 0: # what does it mean?
+                if subgoals_closed > 0:  # what does it mean?
                     return SubSearchResult(None, subgoals_closed)
 
             except (serapi_instance.CoqExn, serapi_instance.TimeoutError,
@@ -413,7 +413,7 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
                  leave=False,
                  position=((bar_idx * 2) + 1),
                  dynamic_ncols=True, bar_format=mybarfmt) as pbar:
-        command_list, _ = search(pbar, [g.start_node], [], 0)
+        command_list, _ = search(pbar, [g.start_node], [], 0, coq)
         pbar.clear()
     module_prefix = escape_lemma_name(module_name)
 
