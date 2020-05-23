@@ -1,3 +1,6 @@
+"""
+DFS search strategy for Proverbot9001
+"""
 import argparse
 import sys
 from typing import (List, Optional)
@@ -20,7 +23,7 @@ def get_relevant_lemmas(args, coq):
         return coq.get_hammer_premises()
     if args.relevant_lemmas == "searchabout":
         return coq.get_lemmas_about_head()
-    assert False, args.relevant_lemmas
+    raise RuntimeError(f"Unsupported relevant_lemmas type {args.relevant_lemmas}")
 
 
 # def dfs_proof_search_with_graph(lemma_statement: str,
@@ -175,7 +178,7 @@ def cancel_last_statements(coq: serapi_instance.SerapiInstance,
         coq.cancel_last()
 
 
-def eprint_cancel(desired_state:int, args: argparse.Namespace, msg: Optional[str]):
+def eprint_cancel(desired_state: int, args: argparse.Namespace, msg: Optional[str]):
     if msg:
         eprint(f"Cancelling until {desired_state} statements "
                f"because {msg}.", guard=args.verbose >= 2)
@@ -351,7 +354,6 @@ def dfs_proof_search_with_graph_refactored(lemma_statement: str,
                current_path: List[LabeledNode],
                subgoal_distance_stack: List[int],
                extra_depth: int,
-               coq: serapi_instance.SerapiInstance,
                search_origin_state: int,
                ) -> SubSearchResult:
 
@@ -369,15 +371,14 @@ def dfs_proof_search_with_graph_refactored(lemma_statement: str,
                 break
             try:
                 goto_state_fake(coq, search_origin_state, args)
-                context_after, num_stmts, \
+                context_after, _, \
                 subgoals_closed, subgoals_opened, \
-                error, time_taken = \
+                error, time_taken, new_state = \
                     tryPrediction(args, coq, prediction, current_path[-1])
                 if error:
                     if args.count_failing_predictions:
                         num_successful_predictions += 1
                     continue
-                new_state = coq.cur_state
                 parent_states[new_state] = search_origin_state
                 num_successful_predictions += 1
                 pbar.update(1)
@@ -400,7 +401,7 @@ def dfs_proof_search_with_graph_refactored(lemma_statement: str,
                     continue
                 # Run recursion
                 sub_search_result = search(pbar, current_path + [prediction_node],
-                                           new_distance_stack, new_extra_depth, coq, new_state)
+                                           new_distance_stack, new_extra_depth, new_state)
 
                 if sub_search_result.solution or \
                         sub_search_result.solved_subgoals > subgoals_opened:
@@ -452,7 +453,7 @@ def dfs_proof_search_with_graph_refactored(lemma_statement: str,
                  leave=False,
                  position=((bar_idx * 2) + 1),
                  dynamic_ncols=True, bar_format=mybarfmt) as pbar:
-        command_list, _ = search(pbar, [g.start_node], [], 0, coq, coq.cur_state)
+        command_list, _ = search(pbar, [g.start_node], [], 0, coq.cur_state)
         pbar.clear()
     module_prefix = escape_lemma_name(module_name)
 

@@ -910,7 +910,7 @@ class SearchResult(NamedTuple):
 def tryPrediction(args : argparse.Namespace,
                   coq : serapi_instance.SerapiInstance,
                   prediction : str,
-                  previousNode : LabeledNode) -> Tuple[ProofContext, int, int, int, Optional[Exception], float]:
+                  previousNode : LabeledNode) -> Tuple[ProofContext, int, int, int, Optional[Exception], float, int]:
     coq.quiet = True
     time_left = max(args.max_proof_time - time_on_path(previousNode), 0)
     start_time = time.time()
@@ -921,7 +921,7 @@ def tryPrediction(args : argparse.Namespace,
     except (serapi_instance.TimeoutError, serapi_instance.ParseError,
             serapi_instance.CoqExn, serapi_instance.OverflowError,
             serapi_instance.UnrecognizedError) as e:
-        return coq.proof_context, 0, 0, 0, e, time.time() - start_time
+        return coq.proof_context, 0, 0, 0, e, time.time() - start_time, coq.cur_state
 
     time_taken = time.time() - start_time
     num_stmts = 1
@@ -943,7 +943,7 @@ def tryPrediction(args : argparse.Namespace,
         subgoals_opened = 0
     context_after = coq.proof_context
     assert context_after
-    return context_after, num_stmts, subgoals_closed, subgoals_opened, error, time_taken
+    return context_after, num_stmts, subgoals_closed, subgoals_opened, error, time_taken, coq.cur_state
 
 def completed_proof(coq : serapi_instance.SerapiInstance) -> bool:
     if coq.proof_context:
