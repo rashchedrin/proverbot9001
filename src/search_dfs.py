@@ -175,21 +175,24 @@ def cancel_last_statements(coq: serapi_instance.SerapiInstance,
         coq.cancel_last()
 
 
+def eprint_cancel(desired_state:int, args: argparse.Namespace, msg: Optional[str]):
+    if msg:
+        eprint(f"Cancelling until {desired_state} statements "
+               f"because {msg}.", guard=args.verbose >= 2)
+
 def cancel_until_state(coq: serapi_instance.SerapiInstance,
                        desired_state: int,
                        args: argparse.Namespace,
                        msg: Optional[str] = None):
-    if msg:
-        eprint(f"Cancelling until {desired_state} statements "
-               f"because {msg}.", guard=args.verbose >= 2)
+    eprint_cancel(desired_state, args, msg)
     while coq.cur_state != desired_state:
         coq.cancel_last()
 
 
 def goto_state_fake(coq: serapi_instance.SerapiInstance,
-               desired_state: int,
-               args: argparse.Namespace,
-               msg: Optional[str] = None):
+                    desired_state: int,
+                    args: argparse.Namespace,
+                    msg: Optional[str] = None):
     return cancel_until_state(coq, desired_state, args, msg)
 
 
@@ -334,11 +337,11 @@ def dfs_proof_search_with_graph(lemma_statement: str,
     return SearchResult(SearchStatus.FAILURE, None)
 
 
-def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
-                                               module_name: Optional[str],
-                                               coq: serapi_instance.SerapiInstance,
-                                               args: argparse.Namespace,
-                                               bar_idx: int) -> SearchResult:
+def dfs_proof_search_with_graph_refactored(lemma_statement: str,
+                                           module_name: Optional[str],
+                                           coq: serapi_instance.SerapiInstance,
+                                           args: argparse.Namespace,
+                                           bar_idx: int) -> SearchResult:
     lemma_name = serapi_instance.lemma_name_from_statement(lemma_statement)
     g = SearchGraph(lemma_name)
     hasUnexploredNode = False
@@ -349,7 +352,7 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
                subgoal_distance_stack: List[int],
                extra_depth: int,
                coq: serapi_instance.SerapiInstance,
-               search_origin_state:int,
+               search_origin_state: int,
                ) -> SubSearchResult:
 
         nonlocal hasUnexploredNode
@@ -365,7 +368,7 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
             if num_successful_predictions >= args.search_width:
                 break
             try:
-                parent_state = coq.cur_state
+                goto_state_fake(coq, search_origin_state, args)
                 context_after, num_stmts, \
                 subgoals_closed, subgoals_opened, \
                 error, time_taken = \
@@ -374,7 +377,8 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
                     if args.count_failing_predictions:
                         num_successful_predictions += 1
                     continue
-                parent_states[coq.cur_state] = parent_state
+                new_state = coq.cur_state
+                parent_states[new_state] = search_origin_state
                 num_successful_predictions += 1
                 pbar.update(1)
 
@@ -387,19 +391,16 @@ def dfs_explicit_stack_proof_search_with_graph(lemma_statement: str,
                 cancel_reason, num_successful_predictions, return_result = \
                     manage_stop_conditions(context_after, coq, current_path, new_extra_depth,
                                            num_successful_predictions, prediction_node, subgoals_closed)
+
                 if cancel_reason is not None:
-                    parent = parent_states[coq.cur_state]
-                    goto_state_fake(coq, parent, args, cancel_reason)
+                    eprint_cancel(search_origin_state, args, cancel_reason)
                 if return_result is not None:
                     return return_result
                 if cancel_reason is not None:
                     continue
                 # Run recursion
-                next_search_origin = coq.cur_state
                 sub_search_result = search(pbar, current_path + [prediction_node],
-                                           new_distance_stack, new_extra_depth, coq, next_search_origin)
-                parent = parent_states[coq.cur_state]
-                goto_state_fake(coq, parent, args, "we finished subsearch")
+                                           new_distance_stack, new_extra_depth, coq, new_state)
 
                 if sub_search_result.solution or \
                         sub_search_result.solved_subgoals > subgoals_opened:
