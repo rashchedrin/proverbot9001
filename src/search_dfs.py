@@ -3,8 +3,8 @@ DFS search strategy for Proverbot9001
 """
 import argparse
 import sys
-from typing import (List, Optional)
-
+from typing import (List, Optional, Dict, Any, Set, Tuple, NamedTuple)
+from dataclasses import dataclass
 from tqdm import tqdm
 
 import search_file
@@ -14,6 +14,7 @@ from search_file import (SearchResult, SubSearchResult, SearchGraph, LabeledNode
                          SearchStatus, TqdmSpy)
 from util import (eprint, escape_lemma_name,
                   mybarfmt)
+from graph_traverses import dfs, TreeTraverseVisitor
 
 
 def get_relevant_lemmas(args, coq):
@@ -183,6 +184,7 @@ def eprint_cancel(desired_state: int, args: argparse.Namespace, msg: Optional[st
         eprint(f"Cancelling until {desired_state} statements "
                f"because {msg}.", guard=args.verbose >= 2)
 
+
 def cancel_until_state(coq: serapi_instance.SerapiInstance,
                        desired_state: int,
                        args: argparse.Namespace,
@@ -199,9 +201,14 @@ def goto_state_fake(coq: serapi_instance.SerapiInstance,
     return cancel_until_state(coq, desired_state, args, msg)
 
 
-def predict_k_tactics(tactic_context_before, k):
-    return [prediction.prediction for prediction in
-            search_file.predictor.predictKTactics(tactic_context_before, k)]
+def predict_k_tactics(coq: serapi_instance.SerapiInstance, args: argparse.Namespace, k: int):
+    relevant_lemmas = get_relevant_lemmas(args, coq)
+    tactic_context_before = TacticContext(relevant_lemmas, coq.prev_tactics, coq.hypotheses, coq.goals)
+    predictions = [prediction.prediction for prediction in
+                   search_file.predictor.predictKTactics(tactic_context_before, k)]
+    if coq.use_hammer:
+        predictions = add_hammer_commands(predictions)
+    return predictions
 
 
 def add_hammer_commands(predictions):
@@ -241,12 +248,8 @@ def dfs_proof_search_with_graph(lemma_statement: str,
                ) -> SubSearchResult:
 
         nonlocal hasUnexploredNode
-        relevant_lemmas = get_relevant_lemmas(args, coq)
-        tactic_context_before = TacticContext(relevant_lemmas, coq.prev_tactics, coq.hypotheses, coq.goals)
-        predictions = predict_k_tactics(tactic_context_before, args.max_attempts)
+        predictions = predict_k_tactics(coq, args, args.max_attempts)
         proof_context_before = coq.proof_context
-        if coq.use_hammer:
-            predictions = add_hammer_commands(predictions)
         num_successful_predictions = 0
         for prediction in predictions:
             if num_successful_predictions >= args.search_width:
@@ -340,6 +343,16 @@ def dfs_proof_search_with_graph(lemma_statement: str,
     return SearchResult(SearchStatus.FAILURE, None)
 
 
+def manage_returned_result(sub_search_result, subgoals_closed, subgoals_opened):
+    return_result = None
+    if sub_search_result.solution or sub_search_result.solved_subgoals > subgoals_opened:
+        new_subgoals_closed = sub_search_result.solved_subgoals + subgoals_closed - subgoals_opened  # what is it?
+        return_result = SubSearchResult(sub_search_result.solution, new_subgoals_closed)
+    elif subgoals_closed > 0:  # what does it mean?
+        return_result = SubSearchResult(None, subgoals_closed)
+    return return_result
+
+
 def dfs_proof_search_with_graph_refactored(lemma_statement: str,
                                            module_name: Optional[str],
                                            coq: serapi_instance.SerapiInstance,
@@ -359,12 +372,8 @@ def dfs_proof_search_with_graph_refactored(lemma_statement: str,
 
         nonlocal hasUnexploredNode
         goto_state_fake(coq, search_origin_state, args)
-        relevant_lemmas = get_relevant_lemmas(args, coq)
-        tactic_context_before = TacticContext(relevant_lemmas, coq.prev_tactics, coq.hypotheses, coq.goals)
-        predictions = predict_k_tactics(tactic_context_before, args.max_attempts)
+        predictions = predict_k_tactics(coq, args, args.max_attempts)
         proof_context_before = coq.proof_context
-        if coq.use_hammer:
-            predictions = add_hammer_commands(predictions)
         num_successful_predictions = 0
         for prediction in predictions:
             if num_successful_predictions >= args.search_width:
@@ -378,46 +387,35 @@ def dfs_proof_search_with_graph_refactored(lemma_statement: str,
                 if error:
                     if args.count_failing_predictions:
                         num_successful_predictions += 1
-                    continue
+                    continue  # try next prediction
                 parent_states[new_state] = search_origin_state
-                num_successful_predictions += 1
-                pbar.update(1)
-
                 prediction_node = g.mkNode(prediction, proof_context_before, current_path[-1])
                 prediction_node.time_taken = time_taken
-
+                num_successful_predictions += 1
+                pbar.update(1)
                 # Handle stop conditions
                 new_distance_stack, new_extra_depth = update_distance_stack(extra_depth, subgoal_distance_stack,
                                                                             subgoals_closed, subgoals_opened)
                 cancel_reason, num_successful_predictions, return_result = \
                     manage_stop_conditions(context_after, coq, current_path, new_extra_depth,
                                            num_successful_predictions, prediction_node, subgoals_closed)
-
                 if cancel_reason is not None:
                     eprint_cancel(search_origin_state, args, cancel_reason)
                 if return_result is not None:
-                    return return_result
+                    return return_result  # Qed, or depth limit => (None, subgoals_closed), else: continue
                 if cancel_reason is not None:
                     continue
                 # Run recursion
                 sub_search_result = search(pbar, current_path + [prediction_node],
                                            new_distance_stack, new_extra_depth, new_state)
-
-                if sub_search_result.solution or \
-                        sub_search_result.solved_subgoals > subgoals_opened:
-                    new_subgoals_closed = sub_search_result.solved_subgoals \
-                                          + subgoals_closed - subgoals_opened  # what is it?
-                    return SubSearchResult(sub_search_result.solution,
-                                           new_subgoals_closed)
-                if subgoals_closed > 0:  # what does it mean?
-                    return SubSearchResult(None, subgoals_closed)
-
+                # manage returned result
+                return_result = manage_returned_result(sub_search_result, subgoals_closed, subgoals_opened)
+                if return_result is not None:
+                    return return_result  # solution, or (None, subgoals_closed > 0), else contunue
             except (serapi_instance.CoqExn, serapi_instance.TimeoutError,
                     serapi_instance.OverflowError, serapi_instance.ParseError,
                     serapi_instance.UnrecognizedError):
-                continue
-            except serapi_instance.NoSuchGoalError:
-                raise
+                continue  # try next prediction
         return SubSearchResult(None, 0)  # ran out of predictions.
 
     def manage_stop_conditions(context_after, coq, current_path, new_extra_depth, num_successful_predictions,
