@@ -109,10 +109,17 @@ class CoqVisitor(TreeTraverseVisitor):
     Makes search return SubSearchResult
     """
 
-    def __init__(self, max_successful_predictions: int, pbar: tqdm):
+    def __init__(self,
+                 max_successful_predictions: int,
+                 pbar: tqdm,
+                 visualization_graph: SearchGraph,
+                 args: argparse.Namespace,
+                 ):
         self.max_successful_predictions = max_successful_predictions
         self.pbar = pbar
         self.num_successful_predictions = defaultdict(int)
+        self.visualization_graph = visualization_graph
+        self.args = args
 
     def on_enter(self, graph: GraphInterface,
                  entered_node) -> TraverseVisitorResult:
@@ -129,15 +136,36 @@ class CoqVisitor(TreeTraverseVisitor):
             return TraverseVisitorResult(do_skip=True)
         self.num_successful_predictions += 1
         self.pbar.update(1)
+        self.visualization_graph.mkNode(discovered.prediction,
+                                        discovered.context_before,
+                                        discovered.previous)
+
+        new_distance_stack, new_extra_depth = update_distance_stack(extra_depth, subgoal_distance_stack,
+                                                                    subgoals_closed, subgoals_opened)
+
+        cancel_reason, num_successful_predictions, return_result = \
+            manage_stop_conditions(context_after, coq, current_path, new_extra_depth,
+                                   num_successful_predictions, prediction_node, subgoals_closed)
+        if cancel_reason is not None:
+            eprint_cancel(frm.node_id, self.args, cancel_reason)
+        if return_result is not None:
+            # Qed, or depth limit => (None, subgoals_closed), else: continue
+            return TraverseVisitorResult(do_return=True, what_return=return_result)
+        if cancel_reason is not None:
+            return TraverseVisitorResult(do_skip=True)
         return TraverseVisitorResult()
 
     def on_got_result(self, graph: GraphInterface,
                       parent, node, result, all_children_results) -> TraverseVisitorResult:
+        return_result = manage_returned_result(sub_search_result, subgoals_closed, subgoals_opened)
+        if return_result is not None:
+            # solution, or (None, subgoals_closed > 0), else contunue
+            return TraverseVisitorResult(do_return=True, what_return=return_result)
         return TraverseVisitorResult()
 
     def on_exit(self, graph: GraphInterface,
                 node_left, all_children_results, stage, suggested_result) -> TraverseVisitorResult:
-        return TraverseVisitorResult()
+        return TraverseVisitorResult(what_return=SubSearchResult(None, 0), do_return=True)
 
 
 class Edge(NamedTuple):

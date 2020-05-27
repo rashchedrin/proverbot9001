@@ -79,6 +79,7 @@ def dfs(initial_node,
             break
         if vis_res.do_skip:
             continue
+
         child_node = graph.edge_destination(edge)
         vis_res = visitor.on_discover(graph=graph, frm=initial_node, discovered=child_node)
         if vis_res.do_return:
@@ -87,6 +88,7 @@ def dfs(initial_node,
             break
         if vis_res.do_skip:
             continue
+
         result = dfs(child_node, graph, visitor)
         all_children_results.append(result)
         vis_res = visitor.on_got_result(graph=graph, parent=initial_node, node=child_node, result=result,
