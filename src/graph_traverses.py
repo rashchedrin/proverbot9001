@@ -71,7 +71,8 @@ def dfs(initial_node,
     vis_res = visitor.on_enter(graph=graph, entered_node=initial_node)
     if vis_res.do_return:
         return at_exit(ExitStage.ENTRANCE, vis_res.what_return)
-    for edge in graph.get_outgoing_edges(initial_node):
+    edges = graph.get_outgoing_edges(initial_node)
+    for edge in edges:
         vis_res = visitor.on_got_edge(graph=graph, frm=initial_node, edge=edge)
         if vis_res.do_return:
             return at_exit(ExitStage.GOT_EDGE, vis_res.what_return)
