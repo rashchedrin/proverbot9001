@@ -76,6 +76,7 @@ def unique_preserve_order(seq):
     seen_add = seen.add
     return [x for x in seq if not (x in seen or seen_add(x))]
 
+
 def predict_k_tactics(coq: serapi_instance.SerapiInstance, args: argparse.Namespace, k: int) -> List:
     relevant_lemmas = get_relevant_lemmas(args, coq)
     tactic_context_before = TacticContext(relevant_lemmas, coq.prev_tactics, coq.hypotheses, coq.goals)
@@ -283,7 +284,6 @@ class CoqVisitor(TreeTraverseVisitor):
         subgoals_closed = discovered.subgoals_closed
         context_after = discovered.context_after
 
-
         new_distance_stack, new_extra_depth = update_distance_stack(
             self._nodes_info[frm.state_id].extra_depth,
             self._nodes_info[frm.state_id].subgoal_distance_stack,
@@ -345,7 +345,7 @@ class CoqVisitor(TreeTraverseVisitor):
         return TraverseVisitorResult()
 
     def on_exit(self, graph: CoqGraphInterface,
-                node_left:CoqGraphNode, all_children_results, stage, suggested_result) -> TraverseVisitorResult:
+                node_left: CoqGraphNode, all_children_results, stage, suggested_result) -> TraverseVisitorResult:
         # All predictions made no progress
         print(f"Exiting {node_left.state_id} at stage {stage}")
         return TraverseVisitorResult(what_return=SubSearchResult(None, 0), do_return=True)
