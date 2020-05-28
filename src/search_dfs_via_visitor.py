@@ -299,7 +299,8 @@ class CoqVisitor(TreeTraverseVisitor):
             self._vis_graph.setNodeColor(discovered.vis_node, "orange4")
             eprint_cancel(frm.vis_node.node_id, self._args, "resulting context has too big a goal")
             return TraverseVisitorResult(do_skip=True)
-        if len(discovered_info.path) >= depth_limit:
+        current_depth = len(discovered_info.path) - 1
+        if current_depth >= depth_limit:
             self.has_unexplored_node = True
             eprint_cancel(frm.vis_node.node_id, self._args, "we hit the depth limit")
             if subgoals_closed > 0:
