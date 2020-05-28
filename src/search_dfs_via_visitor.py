@@ -108,16 +108,6 @@ def update_distance_stack(extra_depth, subgoal_distance_stack, subgoals_closed, 
     return new_distance_stack, new_extra_depth
 
 
-def manage_returned_result(sub_search_result, subgoals_closed, subgoals_opened):
-    return_result = None
-    if sub_search_result.solution or sub_search_result.solved_subgoals > subgoals_opened:
-        new_subgoals_closed = sub_search_result.solved_subgoals + subgoals_closed - subgoals_opened  # what is it?
-        return_result = SubSearchResult(sub_search_result.solution, new_subgoals_closed)
-    elif subgoals_closed > 0:  # what does it mean?
-        return_result = SubSearchResult(None, subgoals_closed)
-    return return_result
-
-
 class Edge(NamedTuple):
     frm: int
     tactic: str
