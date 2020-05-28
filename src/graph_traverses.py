@@ -57,23 +57,26 @@ class ExitStage(Enum):
 
 
 def dfs(initial_node,
-        graph: GraphInterface,
+        tree: GraphInterface,
         visitor: TreeTraverseVisitor,
         ):
+    """
+    Depth first search. Doesn't check if it already visited node, so only suitable for trees.
+    """
     all_children_results = []
 
     def at_exit(stage: ExitStage, suggested_result):
-        vis_res = visitor.on_exit(graph=graph, node_left=initial_node,
+        vis_res = visitor.on_exit(graph=tree, node_left=initial_node,
                                   all_children_results=all_children_results,
                                   stage=stage, suggested_result=suggested_result)
         return vis_res.what_return if vis_res.do_overwrite_result or stage == ExitStage.EXIT else suggested_result
 
-    vis_res = visitor.on_enter(graph=graph, entered_node=initial_node)
+    vis_res = visitor.on_enter(graph=tree, entered_node=initial_node)
     if vis_res.do_return:
         return at_exit(ExitStage.ENTRANCE, vis_res.what_return)
-    edges = graph.get_outgoing_edges(initial_node)
+    edges = tree.get_outgoing_edges(initial_node)
     for edge in edges:
-        vis_res = visitor.on_got_edge(graph=graph, frm=initial_node, edge=edge)
+        vis_res = visitor.on_got_edge(graph=tree, frm=initial_node, edge=edge)
         if vis_res.do_return:
             return at_exit(ExitStage.GOT_EDGE, vis_res.what_return)
         if vis_res.do_break:
@@ -81,8 +84,8 @@ def dfs(initial_node,
         if vis_res.do_skip:
             continue
 
-        child_node = graph.edge_destination(edge)
-        vis_res = visitor.on_discover(graph=graph, frm=initial_node, discovered=child_node)
+        child_node = tree.edge_destination(edge)
+        vis_res = visitor.on_discover(graph=tree, frm=initial_node, discovered=child_node)
         if vis_res.do_return:
             return at_exit(ExitStage.NODE_DISCOVERED, vis_res.what_return)
         if vis_res.do_break:
@@ -90,9 +93,9 @@ def dfs(initial_node,
         if vis_res.do_skip:
             continue
 
-        result = dfs(child_node, graph, visitor)
+        result = dfs(child_node, tree, visitor)
         all_children_results.append(result)
-        vis_res = visitor.on_got_result(graph=graph, receiver_node=initial_node, sender_node=child_node, result=result,
+        vis_res = visitor.on_got_result(graph=tree, receiver_node=initial_node, sender_node=child_node, result=result,
                                         siblings_results=all_children_results)
         if vis_res.do_return:
             return at_exit(ExitStage.GOT_RESULT, vis_res.what_return)

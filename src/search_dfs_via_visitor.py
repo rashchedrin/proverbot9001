@@ -66,7 +66,7 @@ def goto_state_fake(coq: serapi_instance.SerapiInstance,
     return cancel_until_state(coq, desired_state, args, msg)
 
 
-def unique_preserve_order(seq):
+def delete_duplicates(seq):
     """
     deletes duplicates, preserves order
     source: https://stackoverflow.com/questions/480214/how-do-you-remove-duplicates-from-a-list-whilst-preserving-order
@@ -84,7 +84,10 @@ def predict_k_tactics(coq: serapi_instance.SerapiInstance, args: argparse.Namesp
                    search_file.predictor.predictKTactics(tactic_context_before, k)]
     if coq.use_hammer:
         predictions = add_hammer_commands(predictions)
-    return unique_preserve_order(predictions)
+    without_duplicates = delete_duplicates(predictions)
+    # if len(without_duplicates) != len(predictions):
+    #     print(predictions)
+    return without_duplicates
 
 
 def add_hammer_commands(predictions):
@@ -153,9 +156,9 @@ class CoqGraphInterface(GraphInterface):
         Calls neural network to get predictions
         memoizes to self.memoized_outgoing_edges
         """
-        print(f"Get edges of {node.state_id}")
+        # print(f"Get edges of {node.state_id}")
         if node.state_id in self._memoized_outgoing_edges:
-            print(f"Edges recalled ({len(self._memoized_outgoing_edges[node.state_id])})")
+            # print(f"Edges recalled ({len(self._memoized_outgoing_edges[node.state_id])})")
             return self._memoized_outgoing_edges[node.state_id]
         goto_state_fake(self._coq, node.state_id, self._args, "get outgoing edges")
         predictions = predict_k_tactics(self._coq, self._args, self._args.max_attempts)
@@ -177,7 +180,7 @@ class CoqGraphInterface(GraphInterface):
         if edge in self._memoized_outgoing_edges:
             return self._memoized_outgoing_edges[edge]
         if self._coq.cur_state != edge.frm:
-            print(f"mov {self._coq.cur_state} => {edge.frm} {edge.tactic}", end='')
+            # print(f"mov {self._coq.cur_state} => {edge.frm} {edge.tactic}", end='')
             goto_state_fake(self._coq, edge.frm, self._args, "goto edge source")
         context_before = self._coq.proof_context
         parent_vis_node = self._state_id_to_node[edge.frm].vis_node
@@ -186,9 +189,9 @@ class CoqGraphInterface(GraphInterface):
         error, time_taken, new_state = \
             tryPrediction(self._args, self._coq, edge.tactic, parent_vis_node)
         if error:
-            print(f"failed {edge.frm} {edge.tactic}")
+            # print(f"failed {edge.frm} {edge.tactic}")
             return None
-        print(f"{edge.frm} -{edge.tactic}-> {new_state}")
+        # print(f"{edge.frm} -{edge.tactic}-> {new_state}")
         is_proof_completed = completed_proof(self._coq)
         new_vis_node = self._vis_graph.mkNode(edge.tactic, context_before, parent_vis_node)
         new_vis_node.time_taken = time_taken
@@ -241,7 +244,7 @@ class CoqVisitor(TreeTraverseVisitor):
         self.has_unexplored_node: bool = False
 
     def on_enter(self, graph: GraphInterface, entered_node) -> TraverseVisitorResult:
-        print(f"Launched from {entered_node.state_id}")
+        # print(f"Launched from {entered_node.state_id}")
         return super().on_enter(graph, entered_node)
 
     def on_got_edge(self, graph: CoqGraphInterface, frm: CoqGraphNode, edge: Edge) -> TraverseVisitorResult:
@@ -338,7 +341,7 @@ class CoqVisitor(TreeTraverseVisitor):
     def on_exit(self, graph: CoqGraphInterface,
                 node_left: CoqGraphNode, all_children_results, stage, suggested_result) -> TraverseVisitorResult:
         # All predictions made no progress
-        print(f"Exiting {node_left.state_id} at stage {stage}")
+        # print(f"Exiting {node_left.state_id} at stage {stage}")
         return TraverseVisitorResult(what_return=SubSearchResult(None, 0), do_return=True)
 
 
