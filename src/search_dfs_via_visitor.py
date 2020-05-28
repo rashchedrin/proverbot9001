@@ -103,74 +103,10 @@ def manage_returned_result(sub_search_result, subgoals_closed, subgoals_opened):
     return return_result
 
 
-class CoqVisitor(TreeTraverseVisitor):
-    """
-    Visitor for search in coq
-    Makes search return SubSearchResult
-    """
-
-    def __init__(self,
-                 max_successful_predictions: int,
-                 pbar: tqdm,
-                 visualization_graph: SearchGraph,
-                 args: argparse.Namespace,
-                 ):
-        self.max_successful_predictions = max_successful_predictions
-        self.pbar = pbar
-        self.num_successful_predictions = defaultdict(int)
-        self.visualization_graph = visualization_graph
-        self.args = args
-
-    def on_enter(self, graph: GraphInterface,
-                 entered_node) -> TraverseVisitorResult:
-        return TraverseVisitorResult()
-
-    def on_got_edge(self, graph: GraphInterface, frm, edge) -> TraverseVisitorResult:
-        if self.num_successful_predictions[frm] >= self.max_successful_predictions:
-            return TraverseVisitorResult(do_break=True)
-        return TraverseVisitorResult()
-
-    def on_discover(self, graph: GraphInterface,
-                    frm: LabeledNode, discovered: LabeledNode) -> TraverseVisitorResult:
-        if discovered is None:
-            return TraverseVisitorResult(do_skip=True)
-        self.num_successful_predictions += 1
-        self.pbar.update(1)
-        self.visualization_graph.mkNode(discovered.prediction,
-                                        discovered.context_before,
-                                        discovered.previous)
-
-        new_distance_stack, new_extra_depth = update_distance_stack(extra_depth, subgoal_distance_stack,
-                                                                    subgoals_closed, subgoals_opened)
-
-        cancel_reason, num_successful_predictions, return_result = \
-            manage_stop_conditions(context_after, coq, current_path, new_extra_depth,
-                                   num_successful_predictions, prediction_node, subgoals_closed)
-        if cancel_reason is not None:
-            eprint_cancel(frm.node_id, self.args, cancel_reason)
-        if return_result is not None:
-            # Qed, or depth limit => (None, subgoals_closed), else: continue
-            return TraverseVisitorResult(do_return=True, what_return=return_result)
-        if cancel_reason is not None:
-            return TraverseVisitorResult(do_skip=True)
-        return TraverseVisitorResult()
-
-    def on_got_result(self, graph: GraphInterface,
-                      parent, node, result, all_children_results) -> TraverseVisitorResult:
-        return_result = manage_returned_result(sub_search_result, subgoals_closed, subgoals_opened)
-        if return_result is not None:
-            # solution, or (None, subgoals_closed > 0), else contunue
-            return TraverseVisitorResult(do_return=True, what_return=return_result)
-        return TraverseVisitorResult()
-
-    def on_exit(self, graph: GraphInterface,
-                node_left, all_children_results, stage, suggested_result) -> TraverseVisitorResult:
-        return TraverseVisitorResult(what_return=SubSearchResult(None, 0), do_return=True)
-
-
 class Edge(NamedTuple):
     frm: int
     tactic: str
+
 
 
 class CoqGraphInterface(GraphInterface):
@@ -178,28 +114,48 @@ class CoqGraphInterface(GraphInterface):
     Interface to Coq as a graph
     """
 
+    class ExtraNodeInfo(NamedTuple):
+        """
+        Additional node info, that CoqGraphInterface stores for each node
+        """
+        context_after: ProofContext
+        subgoals_opened: int
+        subgoals_closed: int
+        is_proof_completed: bool
+
     def __init__(self,
                  coq: serapi_instance.SerapiInstance,
                  args: argparse.Namespace,
+                 start_node
                  ):
-        self.coq = coq
-        self.args = args
-        self.contexts_after: Dict[int:ProofContext] = {}
-        self.memoized_outgoing_edges: Dict[int: List[Edge]] = {}
-        self.memoized_edge_destinations: Dict[int: Optional[LabeledNode]] = {}
-        self.id2node: Dict[int: LabeledNode] = {}
+        self._coq = coq
+        self._args = args
+        self._memoized_outgoing_edges: Dict[int, List[Edge]] = {}
+        self._memoized_edge_destinations: Dict[int, Optional[LabeledNode]] = {}
+        self._id2node: Dict[int, LabeledNode] = {}
+        self._node_infos: Dict[int, CoqGraphInterface.ExtraNodeInfo] = {}
+
+        # todo: figure out correct initialization
+        root_node = LabeledNode("root_dummy_prediction", 0, coq.cur_state, coq.proof_context, start_node)
+        self._id2node[root_node.node_id] = root_node
+        self._node_infos[root_node.node_id] = CoqGraphInterface.ExtraNodeInfo(
+            coq.proof_context, 0, 0, False
+        )
+        self._node_infos[start_node.node_id] = CoqGraphInterface.ExtraNodeInfo(
+            coq.proof_context, 0, 0, False
+        )
 
     def get_outgoing_edges(self, node: LabeledNode) -> List[Edge]:
         """
         Calls neural network to get predictions
         memoizes to self.memoized_outgoing_edges
         """
-        if node.node_id in self.memoized_outgoing_edges:
-            return self.memoized_outgoing_edges[node.node_id]
-        goto_state_fake(self.coq, node.node_id, self.args)
-        predictions = predict_k_tactics(self.coq, self.args, self.args.max_attempts)
+        if node.node_id in self._memoized_outgoing_edges:
+            return self._memoized_outgoing_edges[node.node_id]
+        goto_state_fake(self._coq, node.node_id, self._args)
+        predictions = predict_k_tactics(self._coq, self._args, self._args.max_attempts)
         edges = [Edge(node.node_id, pred) for pred in predictions]
-        self.memoized_outgoing_edges[node.node_id] = edges
+        self._memoized_outgoing_edges[node.node_id] = edges
         return edges
 
     def edge_destination(self, edge: Edge) -> Optional[LabeledNode]:
@@ -207,25 +163,176 @@ class CoqGraphInterface(GraphInterface):
         Creates new node: sends commands to Coq to get it
         Memoizes to self.memoized_edge_destinations
         adds new node to self.id2node
+        adds values in
+            self.contexts_after[new_state],
+            self.subgoals_opened[new_state],
+            self.subgoals_closed[new_state]
         returns None on Coq error
         """
-        if edge in self.memoized_outgoing_edges:
-            return self.memoized_outgoing_edges[edge]
-        goto_state_fake(self.coq, edge.frm, self.args)
-        parent_node = self.id2node[edge.frm].previous
+        if edge in self._memoized_outgoing_edges:
+            return self._memoized_outgoing_edges[edge]
+        goto_state_fake(self._coq, edge.frm, self._args)
+        parent_node = self._id2node[edge.frm].previous
         context_after, _, \
         subgoals_closed, subgoals_opened, \
         error, time_taken, new_state = \
-            tryPrediction(self.args, self.coq, edge.tactic, parent_node)
+            tryPrediction(self._args, self._coq, edge.tactic, parent_node)
         if error:
             return None
-        context_before = self.contexts_after[parent_node.node_id]
-        # new_node = LabeledNode(edge.tactic, time_taken, new_state, context_before, self.id2node[edge.frm])
-        new_node = g.mkNode()
+        context_before = self._node_infos[parent_node.node_id].context_after
+        is_proof_completed = completed_proof(self._coq)
+        extra_info = CoqGraphInterface.ExtraNodeInfo(context_after, subgoals_opened,
+                                   subgoals_closed, is_proof_completed)
+        self._node_infos[new_state] = extra_info
+        new_node = LabeledNode(edge.tactic, time_taken, new_state, context_before, self._id2node[edge.frm])
         new_node.time_taken = time_taken
-        self.id2node[new_state] = new_node
-        self.memoized_outgoing_edges[edge] = new_node
+        self._id2node[new_state] = new_node
+        self._memoized_outgoing_edges[edge] = new_node
         return new_node
+
+    def context_after(self, node_id) -> ProofContext:
+        return self._node_infos[node_id].context_after
+
+    def subgoals_opened(self, node_id):
+        return self._node_infos[node_id].subgoals_opened
+
+    def subgoals_closed(self, node_id):
+        return self._node_infos[node_id].subgoals_closed
+
+    def is_proof_completed(self, node_id):
+        return self._node_infos[node_id].is_proof_completed
+
+
+
+
+
+class CoqVisitor(TreeTraverseVisitor):
+    """
+    Visitor for search in coq
+    Makes search return SubSearchResult
+    """
+
+    class NodeInfo(NamedTuple):
+        """
+        Additional node info, that CoqVisitor stores for each node
+        """
+        extra_depth: int
+        subgoal_distance_stack: List[int]
+        subgoals_closed: int
+        subgoals_opened: int
+        path: List[LabeledNode]
+
+    def __init__(self,
+                 pbar: tqdm,
+                 visualization_graph: SearchGraph,
+                 args: argparse.Namespace,
+                 initial_node_id: int,
+                 initial_node_info: NodeInfo
+                 ):
+        self.pbar = pbar
+        self.num_successful_predictions = defaultdict(int)
+        self.visualization_graph = visualization_graph
+        self.args = args
+        self.nodes_info: Dict[int, CoqVisitor.NodeInfo] = {initial_node_id: initial_node_info}
+        self.has_unexplored_node: bool = False
+
+    def on_got_edge(self, graph: GraphInterface, frm, edge) -> TraverseVisitorResult:
+        """limit search width"""
+        if self.num_successful_predictions[frm.node_id] >= self.args.search_width:
+            return TraverseVisitorResult(do_break=True)
+        return TraverseVisitorResult()
+
+    def on_discover(self, graph: CoqGraphInterface,
+                    frm: LabeledNode, discovered: LabeledNode) -> TraverseVisitorResult:
+        """
+        skip erroneous nodes
+        increment num_successful_predictions
+        update visualizations
+        calculate extra depth and distance_stack
+        check:
+            Qed --> return Qed
+            context in current path --> cancel node
+            context is too big --> cancel node
+            depth limit --> return, has_unexplored = true
+
+        """
+        if discovered is None:  # coq error
+            return TraverseVisitorResult(do_skip=True)
+        self.num_successful_predictions[frm.node_id] += 1
+        self.pbar.update(1)
+        self.visualization_graph.mkNode(discovered.prediction,
+                                        discovered.context_before,
+                                        discovered.previous)
+
+        # Handle stop conitions
+
+        new_distance_stack, new_extra_depth = update_distance_stack(
+            self.nodes_info[frm.node_id].extra_depth,
+            self.nodes_info[frm.node_id].subgoal_distance_stack,
+            self.nodes_info[frm.node_id].subgoals_closed,
+            self.nodes_info[frm.node_id].subgoals_opened)
+
+        subgoals_closed = graph.subgoals_closed(discovered.node_id)
+        subgoals_opened = graph.subgoals_opened(discovered.node_id)
+        context_after = graph.context_after(discovered.node_id)
+        discovered_info = CoqVisitor.NodeInfo(new_extra_depth, new_distance_stack, subgoals_closed,
+                                              subgoals_opened, self.nodes_info[frm.node_id].path + [discovered])
+        self.nodes_info[discovered.node_id] = discovered_info
+
+        depth_limit = self.args.search_depth + new_extra_depth
+        if graph.is_proof_completed(discovered.node_id):
+            solution = self.visualization_graph.mkQED(discovered)
+            return TraverseVisitorResult(do_return=True,
+                                         what_return=SubSearchResult(solution, subgoals_closed))
+        if contextInPath(context_after, discovered_info.path[1:]):
+            if not self.args.count_softfail_predictions:
+                self.num_successful_predictions[frm.node_id] -= 1  # I don't like this +1 -1 logic
+            self.visualization_graph.setNodeColor(discovered, "orange")
+            eprint_cancel(frm.node_id, self.args, "resulting context is in current path")
+            return TraverseVisitorResult(do_skip=True)
+        if contextIsBig(context_after):
+            self.visualization_graph.setNodeColor(discovered, "orange4")
+            eprint_cancel(frm.node_id, self.args, "resulting context has too big a goal")
+            return TraverseVisitorResult(do_skip=True)
+        if len(discovered_info.path) >= depth_limit:
+            self.has_unexplored_node = True
+            eprint_cancel(frm.node_id, self.args, "we hit the depth limit")
+            if subgoals_closed > 0:
+                return TraverseVisitorResult(do_return=True,
+                                             what_return=SubSearchResult(None, subgoals_closed))
+            return TraverseVisitorResult(do_skip=True)
+
+        return TraverseVisitorResult()
+
+    def on_got_result(self, graph: CoqGraphInterface,
+                      receiver_node: LabeledNode,
+                      sender_node: LabeledNode,
+                      result: SubSearchResult,
+                      siblings_results: List[SubSearchResult]) -> TraverseVisitorResult:
+        """
+        if has solution, return it with new_subgoals_closed
+        if has closed subgoal, return subgoals_closed
+        I don't understand what it really does
+        """
+        subgoals_opened = graph.subgoals_opened(sender_node.node_id)
+        subgoals_closed = graph.subgoals_closed(sender_node.node_id)
+        if result.solution or \
+                result.solved_subgoals > subgoals_opened:
+            new_subgoals_closed = \
+                subgoals_closed - subgoals_opened + \
+                result.solved_subgoals
+            return TraverseVisitorResult(do_return=True,
+                                         what_return=SubSearchResult(result.solution,
+                                                                     new_subgoals_closed))
+        if subgoals_closed > 0:
+            return TraverseVisitorResult(do_return=True,
+                                         what_return=SubSearchResult(None, subgoals_closed))
+        return TraverseVisitorResult()
+
+    def on_exit(self, graph: GraphInterface,
+                node_left, all_children_results, stage, suggested_result) -> TraverseVisitorResult:
+        # All predictions made no progress
+        return TraverseVisitorResult(what_return=SubSearchResult(None, 0), do_return=True)
 
 
 def dfs_proof_search_with_graph_visitor(lemma_statement: str,
@@ -245,9 +352,11 @@ def dfs_proof_search_with_graph_visitor(lemma_statement: str,
                  leave=False,
                  position=((bar_idx * 2) + 1),
                  dynamic_ncols=True, bar_format=mybarfmt) as pbar:
-        visitor = CoqVisitor(pbar, [g.start_node], [], 0)
-        graph_interface = CoqGraphInterface(coq, args)
-        command_list, _ = dfs(coq.cur_state,
+        # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
+        visitor = CoqVisitor(pbar, g, args, coq.cur_state,
+                             CoqVisitor.NodeInfo(0, [], 0, 0, [g.start_node]))
+        graph_interface = CoqGraphInterface(coq, args, g.start_node)
+        command_list, _ = dfs(LabeledNode("Idk dummy initial pred", 0, coq.cur_state, coq.proof_context, None),
                               graph_interface,
                               visitor)
         pbar.clear()

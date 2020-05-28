@@ -39,7 +39,7 @@ class TreeTraverseVisitor:
         return TraverseVisitorResult()
 
     def on_got_result(self, graph: GraphInterface,
-                      parent, node, result, all_children_results) -> TraverseVisitorResult:
+                      receiver_node, sender_node, result, siblings_results) -> TraverseVisitorResult:
         return TraverseVisitorResult()
 
     def on_exit(self, graph: GraphInterface,
@@ -91,8 +91,8 @@ def dfs(initial_node,
 
         result = dfs(child_node, graph, visitor)
         all_children_results.append(result)
-        vis_res = visitor.on_got_result(graph=graph, parent=initial_node, node=child_node, result=result,
-                                        all_children_results=all_children_results)
+        vis_res = visitor.on_got_result(graph=graph, receiver_node=initial_node, sender_node=child_node, result=result,
+                                        siblings_results=all_children_results)
         if vis_res.do_return:
             return at_exit(ExitStage.GOT_RESULT, vis_res.what_return)
         if vis_res.do_break:
@@ -133,8 +133,8 @@ def dfs_explicit(initial_node,
         # manage
 
         if node != initial_node:
-            vis_res = visitor.on_got_result(parent=parents[node], node=node, result=node_value,
-                                            all_children_results=all_children_results)
+            vis_res = visitor.on_got_result(receiver_node=parents[node], sender_node=node, result=node_value,
+                                            siblings_results=all_children_results)
             if vis_res.do_return:
                 close(parents[node], "GOT_RESULT", vis_res.what_return)
                 return

@@ -406,8 +406,11 @@ def dfs_proof_search_with_graph_refactored(lemma_statement: str,
                 if cancel_reason is not None:
                     continue
                 # Run recursion
-                sub_search_result = search(pbar, current_path + [prediction_node],
-                                           new_distance_stack, new_extra_depth, new_state)
+                sub_search_result = search(pbar,
+                                           current_path=current_path + [prediction_node],
+                                           subgoal_distance_stack=new_distance_stack,
+                                           extra_depth=new_extra_depth,
+                                           search_origin_state=new_state)
                 # manage returned result
                 return_result = manage_returned_result(sub_search_result, subgoals_closed, subgoals_opened)
                 if return_result is not None:

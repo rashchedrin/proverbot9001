@@ -952,6 +952,7 @@ def completed_proof(coq : serapi_instance.SerapiInstance) -> bool:
     else:
         return False
 
+
 def contextInPath(full_context : ProofContext, path : List[LabeledNode]):
     return any([contextSurjective(full_context, n.context_before)
                 for n in path])
@@ -988,6 +989,7 @@ class TqdmSpy(tqdm):
         super().update(value);
 
 from search_dfs import dfs_proof_search_with_graph_refactored
+from search_dfs_via_visitor import dfs_proof_search_with_graph_visitor
 from search_dfs import dfs_proof_search_with_graph
 
 def attempt_search(args : argparse.Namespace,
@@ -996,7 +998,7 @@ def attempt_search(args : argparse.Namespace,
                    coq : serapi_instance.SerapiInstance,
                    bar_idx : int) \
     -> SearchResult:
-    result = dfs_proof_search_with_graph_refactored(lemma_statement, module_name, coq, args, bar_idx)
+    result = dfs_proof_search_with_graph_visitor(lemma_statement, module_name, coq, args, bar_idx)
     return result
 
 # This implementation is here for reference/documentation
