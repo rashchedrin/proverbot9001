@@ -56,190 +56,11 @@ def dfs(initial_node,
     return at_exit(ExitStage.EXIT, None)
 
 
-def dfs_explicit_old(initial_node,
-                 tree: GraphInterface,
-                 visitor: TreeTraverseVisitor, ):
-    nodes_to_visit = [initial_node]
-    node_results: Dict[int, Any] = {}
-    children_of: Dict[int, List] = defaultdict(list)
-    parents: Dict[int, Optional[int]] = {initial_node: None}
-
-    def mark_visited_recursive(node):
-        if node not in node_results:
-            node_results[node] = "IRRELEVANT"
-        for child in children_of[node]:
-            mark_visited_recursive(child)
-
-    def close(node, stage, suggested_result):
-        if node in node_results:
-            return
-        all_children_results = [node_results[child] for child in children_of[node] if child in node_results]
-        vis_res = visitor.on_exit(tree, node_left=node, all_children_results=all_children_results,
-                                  stage=stage, suggested_result=suggested_result)
-        node_value = vis_res.what_return if vis_res.do_overwrite_result or stage == ExitStage.EXIT else suggested_result
-        node_results[node] = node_value
-        mark_visited_recursive(node)
-        # manage
-
-        if node != initial_node: # send result to parent
-            siblings_result = [node_results[child] for child in children_of[parents[node]] if child in node_results]
-            vis_res = visitor.on_got_result(tree, receiver_node=parents[node], sender_node=node, result=node_value,
-                                            siblings_results=siblings_result)
-            if vis_res.do_return:
-                close(parents[node], ExitStage.GOT_RESULT, vis_res.what_return)
-                return
-            if vis_res.do_break:
-                close(parents[node], ExitStage.EXIT, None)
-                return
-
-        # propagate
-        parent = parents[node]
-        if parent is not None:
-            siblings = children_of[parent]
-            if all([sibling in node_results for sibling in siblings]):
-                close(parent, ExitStage.EXIT, None)
-
-    while nodes_to_visit:
-        cur_node: int = nodes_to_visit[-1]
-        if cur_node in node_results:
-            continue
-        vis_res = visitor.on_enter(tree, entered_node=cur_node)
-        if vis_res.do_return:
-            close(cur_node, ExitStage.ENTRANCE, vis_res.what_return)
-            continue
-        edges = tree.get_outgoing_edges(cur_node)
-        for edge in edges:
-            vis_res = visitor.on_traveling_edge(graph=tree, frm=cur_node, edge=edge)
-            if vis_res.do_return:
-                close(cur_node, ExitStage.TRAVELING_EDGE, vis_res.what_return)
-                break
-            if vis_res.do_break:
-                close(cur_node, ExitStage.EXIT, None)
-                break
-            if vis_res.do_skip:
-                continue
-
-            child = tree.edge_destination(edge)
-
-            parents[child] = cur_node
-            vis_res = visitor.on_discover(tree, frm=cur_node, discovered=child)
-            if vis_res.do_return:
-                close(cur_node, ExitStage.NODE_DISCOVERED, vis_res.what_return)
-                break
-            if vis_res.do_break:
-                close(cur_node, ExitStage.EXIT, None)
-                break
-            if vis_res.do_skip:
-                continue
-            children_of[cur_node].insert(0, child)
-        nodes_to_visit += reversed(children_of[cur_node])
-        if len(children_of[cur_node]) == 0:
-            close(cur_node, ExitStage.EXIT, None)
-            continue
-    return node_results[initial_node]
-
-def dfs_explicit_old2(initial_node,
-                 tree: GraphInterface,
-                 visitor: TreeTraverseVisitor, ):
-    nodes_to_visit = [initial_node]
-    node_results: Dict[int, Any] = {} # todo: make it operate with unhashable nodes
-    children_of: Dict[int, List] = defaultdict(list)
-    parents: Dict[int, Optional[int]] = {initial_node: None}
-
-    def mark_visited_recursive(node):
-        if node not in node_results:
-            node_results[node] = "IRRELEVANT"
-        for child in children_of[node]:
-            mark_visited_recursive(child)
-
-    def close(node, stage, suggested_result, nodes_to_visit):
-        nodes_to_visit.remove(node) # todo: make more efficient by remembering pos of node
-        if node in node_results:
-            return
-        all_children_results = [node_results[child] for child in children_of[node] if child in node_results]
-        vis_res = visitor.on_exit(tree, node_left=node, all_children_results=all_children_results,
-                                  stage=stage, suggested_result=suggested_result)
-        node_value = vis_res.what_return if vis_res.do_overwrite_result or stage == ExitStage.EXIT else suggested_result
-        node_results[node] = node_value
-        mark_visited_recursive(node)
-        # manage
-
-        if node != initial_node: # send result to parent
-            siblings_result = [node_results[child] for child in children_of[parents[node]] if child in node_results]
-            vis_res = visitor.on_got_result(tree, receiver_node=parents[node], sender_node=node, result=node_value,
-                                            siblings_results=siblings_result)
-            if vis_res.do_return:
-                close(parents[node], ExitStage.GOT_RESULT, vis_res.what_return, nodes_to_visit)
-                return
-            if vis_res.do_break:
-                close(parents[node], ExitStage.EXIT, None, nodes_to_visit)
-                return
-
-        # propagate
-        parent = parents[node]
-        if parent is not None:
-            siblings = children_of[parent]
-            if all([sibling in node_results for sibling in siblings]):
-                close(parent, ExitStage.EXIT, None, nodes_to_visit)
-
-    edge_generators = {}
-    def edge_getter(node_id):
-        nonlocal edge_generators
-        if node_id not in edge_generators:
-            def generator():
-                yield from tree.get_outgoing_edges(node_id)
-            edge_generators[node_id] = generator()
-        return edge_generators[node_id]
-
-    while nodes_to_visit:
-        cur_node: int = nodes_to_visit[-1]
-        if cur_node in node_results:
-            continue
-        vis_res = visitor.on_enter(tree, entered_node=cur_node)
-        if vis_res.do_return:
-            close(cur_node, ExitStage.ENTRANCE, vis_res.what_return, nodes_to_visit)
-            continue
-        # edges = tree.get_outgoing_edges(cur_node)
-        try:
-            generator = edge_getter(cur_node)
-            edge = next(generator)
-        except StopIteration:
-            close(cur_node, ExitStage.EXIT, None, nodes_to_visit)
-            continue
-
-        vis_res = visitor.on_traveling_edge(graph=tree, frm=cur_node, edge=edge)
-        if vis_res.do_return:
-            close(cur_node, ExitStage.TRAVELING_EDGE, vis_res.what_return, nodes_to_visit)
-            break
-        if vis_res.do_break:
-            close(cur_node, ExitStage.EXIT, None, nodes_to_visit)
-            break
-        if vis_res.do_skip:
-            continue
-
-        child = tree.edge_destination(edge)
-
-        parents[child] = cur_node
-        vis_res = visitor.on_discover(tree, frm=cur_node, discovered=child)
-        if vis_res.do_return:
-            close(cur_node, ExitStage.NODE_DISCOVERED, vis_res.what_return, nodes_to_visit)
-            break
-        if vis_res.do_break:
-            close(cur_node, ExitStage.EXIT, None, nodes_to_visit)
-            break
-        if vis_res.do_skip:
-            continue
-        children_of[cur_node].insert(0, child)
-
-        nodes_to_visit.append(child)
-
-    return node_results[initial_node]
-
 def dfs_explicit(initial_node,
                  tree: GraphInterface,
                  visitor: TreeTraverseVisitor, ):
     nodes_to_visit = [initial_node]
-    node_results: Dict[int, Any] = {} # todo: make it operate with unhashable nodes
+    node_results: Dict[int, Any] = {}  # todo: make it operate with unhashable nodes
     children_of: Dict[int, List] = defaultdict(list)
     parents: Dict[int, Optional[int]] = {initial_node: None}
     is_opened: Dict[int, bool] = defaultdict(bool)
@@ -253,7 +74,7 @@ def dfs_explicit(initial_node,
     edge_generators = {}
 
     def close(node, stage, suggested_result, nodes_to_visit):
-        nodes_to_visit.remove(node) # todo: make more efficient by remembering pos of node
+        nodes_to_visit.remove(node)  # todo: make more efficient by remembering pos of node
         if node in node_results:
             return
         all_children_results = [node_results[child] for child in children_of[node] if child in node_results]
@@ -261,9 +82,9 @@ def dfs_explicit(initial_node,
                                   stage=stage, suggested_result=suggested_result)
         node_value = vis_res.what_return if vis_res.do_overwrite_result or stage == ExitStage.EXIT else suggested_result
         node_results[node] = node_value
-        mark_visited_recursive(node) # todo: is it necessary?
+        mark_visited_recursive(node)  # todo: is it necessary?
 
-        if node != initial_node: # send result to parent
+        if node != initial_node:  # send result to parent
             siblings_result = [node_results[child] for child in children_of[parents[node]] if child in node_results]
             vis_res = visitor.on_got_result(tree, receiver_node=parents[node], sender_node=node, result=node_value,
                                             siblings_results=siblings_result)
@@ -279,6 +100,7 @@ def dfs_explicit(initial_node,
         if node_id not in edge_generators:
             def generator():
                 yield from tree.get_outgoing_edges(node_id)
+
             edge_generators[node_id] = generator()
         return edge_generators[node_id]
 
@@ -325,78 +147,6 @@ def dfs_explicit(initial_node,
         nodes_to_visit.append(child)
     return node_results[initial_node]
 
-def dfs_explicit_no_flow_controll(initial_node,
-                 tree: GraphInterface,
-                 visitor: TreeTraverseVisitor, ):
-    nodes_to_visit = [initial_node]
-    node_results: Dict[int, Any] = {} # todo: make it operate with unhashable nodes
-    children_of: Dict[int, List] = defaultdict(list)
-    parents: Dict[int, Optional[int]] = {initial_node: None}
-    is_opened: Dict[int, bool] = defaultdict(bool)
-
-    def mark_visited_recursive(node):
-        if node not in node_results:
-            node_results[node] = "IRRELEVANT"
-        for child in children_of[node]:
-            mark_visited_recursive(child)
-
-    edge_generators = {}
-
-    def close(node, stage, suggested_result, nodes_to_visit):
-        nodes_to_visit.remove(node) # todo: make more efficient by remembering pos of node
-        if node in node_results:
-            return
-        all_children_results = [node_results[child] for child in children_of[node] if child in node_results]
-        vis_res = visitor.on_exit(tree, node_left=node, all_children_results=all_children_results,
-                                  stage=stage, suggested_result=suggested_result)
-        node_value = vis_res.what_return if vis_res.do_overwrite_result or stage == ExitStage.EXIT else suggested_result
-        node_results[node] = node_value
-        mark_visited_recursive(node) # todo: is it necessary?
-
-        if node != initial_node: # send result to parent
-            siblings_result = [node_results[child] for child in children_of[parents[node]] if child in node_results]
-            vis_res = visitor.on_got_result(tree, receiver_node=parents[node], sender_node=node, result=node_value,
-                                            siblings_results=siblings_result)
-
-        # propagate # todo: figure out if it works without propagation
-        # parent = parents[node]
-        # if parent is not None:
-        #     siblings = children_of[parent]
-        #     if all([sibling in node_results for sibling in siblings]):
-        #         close(parent, ExitStage.EXIT, None, nodes_to_visit)
-
-    def edge_getter(node_id):
-        nonlocal edge_generators
-        if node_id not in edge_generators:
-            def generator():
-                yield from tree.get_outgoing_edges(node_id)
-            edge_generators[node_id] = generator()
-        return edge_generators[node_id]
-
-    while nodes_to_visit:
-        cur_node: int = nodes_to_visit[-1]
-        if cur_node in node_results: # todo: is this necessary?
-            continue
-
-        if not is_opened[cur_node]:
-            vis_res = visitor.on_enter(tree, entered_node=cur_node)
-            is_opened[cur_node] = True
-
-        # edges = tree.get_outgoing_edges(cur_node)
-        try:
-            generator = edge_getter(cur_node)
-            edge = next(generator)
-        except StopIteration:
-            close(cur_node, ExitStage.EXIT, None, nodes_to_visit)
-            continue
-
-        vis_res = visitor.on_traveling_edge(graph=tree, frm=cur_node, edge=edge)
-        child = tree.edge_destination(edge)
-        parents[child] = cur_node
-        vis_res = visitor.on_discover(tree, frm=cur_node, discovered=child)
-        children_of[cur_node].insert(0, child)
-        nodes_to_visit.append(child)
-    return node_results[initial_node]
 
 def bfs(initial_node,
         get_outgoing_edges,
