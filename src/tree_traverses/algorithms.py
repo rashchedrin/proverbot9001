@@ -156,8 +156,6 @@ def dfs_non_recursive_no_hashes(initial_node,
 
     def close(node_id: int, stage: ExitStage, suggested_result, nodes_to_visit: List[int]):
         nodes_to_visit.remove(node_id)  # todo: make more efficient by remembering pos of node
-        if node_id in node_results:
-            return
         all_children_results = [node_results[child] for child in children_of[node_id] if child in node_results]
         vis_res = visitor.on_exit(tree, node_left=nodes[node_id], all_children_results=all_children_results,
                                   stage=stage, suggested_result=suggested_result)
