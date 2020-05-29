@@ -114,6 +114,68 @@ class EventLoggingVisitor(TreeTraverseVisitor):
         return self._log
 
 
+def hash_bit(seed: str):
+    return hash(seed) % 2 == 0
+
+
+def hashrandom_visitor_result(seed: str):
+    do_return = hash_bit("0|" + seed)
+    do_skip = hash_bit("1|" + seed)
+    do_break = hash_bit("2|" + seed)
+    what_return = seed + str((do_return, do_skip, do_break))
+    return TraverseVisitorResult(do_return=do_return, what_return=what_return,
+                                 do_skip=do_skip, do_break=do_break)
+
+
+class LoggingDroppingVisitor(TreeTraverseVisitor):
+    def __init__(self, do_print: bool = False, seed: str = "deadbeef"):
+        self._log = []
+        self._print = print if do_print else lambda x: None
+        self._seed = seed
+
+    def on_enter(self, graph: GraphInterface, entered_node) -> TraverseVisitorResult:
+        logged = ("on_enter", entered_node)
+        self._print(logged)
+        self._log.append(logged)
+        super().on_enter(graph, entered_node)
+        return hashrandom_visitor_result(str(logged) + str(self._seed))
+
+    def on_traveling_edge(self, graph: GraphInterface, frm, edge) -> TraverseVisitorResult:
+        logged = ("on_traveling_edge", frm, edge)
+        self._print(logged)
+        self._log.append(logged)
+        super().on_traveling_edge(graph, frm, edge)
+        return hashrandom_visitor_result(str(logged) + str(self._seed))
+
+    def on_discover(self, graph: GraphInterface, frm, discovered) -> TraverseVisitorResult:
+        logged = ("on_discover", frm, discovered)
+        self._print(logged)
+        self._log.append(logged)
+        super().on_discover(graph, frm, discovered)
+        return hashrandom_visitor_result(str(logged) + str(self._seed))
+
+    def on_got_result(self, graph: GraphInterface, receiver_node, sender_node, result,
+                      siblings_results) -> TraverseVisitorResult:
+        logged = ("on_got_result", receiver_node, sender_node, result,
+                  siblings_results.copy())
+        self._print(logged)
+        self._log.append(logged)
+        super().on_got_result(graph, receiver_node, sender_node, result, siblings_results)
+        return hashrandom_visitor_result(str(logged) + str(self._seed))
+
+    def on_exit(self, graph: GraphInterface, node_left, all_children_results, stage,
+                suggested_result) -> TraverseVisitorResult:
+        logged = ("on_exit", node_left, all_children_results.copy(), stage,
+                  suggested_result)
+        self._print(logged)
+        self._log.append(logged)
+        super().on_exit(graph, node_left, all_children_results, stage, suggested_result)
+        return hashrandom_visitor_result(str(logged) + str(self._seed))
+
+    def log(self):
+        return self._log
+
+
 def assert_lists_eq(first, second):
     all_ok = first == second
     if not all_ok:
@@ -135,13 +197,32 @@ def check_equivalence(tree, impl_first, impl_second,
     assert res_first == res_second
     assert_lists_eq(visitor_first.log(), visitor_second.log())
 
+
 random.seed(54)
-def test_dfs_and_stack_dfs_equivalence():
+
+etalon = dfs
+alternative = dfs_explicit_no_flow_controll
+
+
+def test_dfs_and_stack_dfs_equivalence_no_flow():
     for size in range(20):
         print(size)
         for attempt in range(10):
             print(".", end='')
             tree = mk_random_tree(size)
-            check_equivalence(tree, impl_first=dfs, impl_second=dfs_explicit_no_flow_controll,
+            check_equivalence(tree, impl_first=etalon, impl_second=alternative,
                               visitor_maker=lambda: EventLoggingVisitor())
             # todo: check equivalence for flow controll
+
+
+def test_dfs_and_stack_dfs_equivalence():
+    counter = 0
+    for size in range(20):
+        print(size)
+        for attempt in range(10):
+            counter += 1
+            print(".", end='')
+            tree = mk_random_tree(size)
+            seed_str = f"({counter})"
+            check_equivalence(tree, impl_first=etalon, impl_second=alternative,
+                              visitor_maker=lambda: LoggingDroppingVisitor(seed=seed_str))

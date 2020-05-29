@@ -261,12 +261,13 @@ def dfs_explicit_no_flow_controll(initial_node,
                                   stage=stage, suggested_result=suggested_result)
         node_value = vis_res.what_return if vis_res.do_overwrite_result or stage == "EXIT" else suggested_result
         node_results[node] = node_value
-        mark_visited_recursive(node)
+        mark_visited_recursive(node) # todo: is it necessary?
 
         if node != initial_node: # send result to parent
             siblings_result = [node_results[child] for child in children_of[parents[node]] if child in node_results]
             vis_res = visitor.on_got_result(tree, receiver_node=parents[node], sender_node=node, result=node_value,
                                             siblings_results=siblings_result)
+
         # propagate # todo: figure out if it works without propagation
         # parent = parents[node]
         # if parent is not None:
