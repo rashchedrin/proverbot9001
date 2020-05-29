@@ -19,6 +19,7 @@ class Tree(GraphInterface):
         self._n_nodes = size
         self._parents: Dict[int, Optional[int]] = parents if parents else {0: None}
         self._children: Dict[int, List[int]] = children if children else defaultdict(list)
+        self._log = []
 
     def add_child(self, parent):
         new_node_id = self._n_nodes
@@ -53,15 +54,20 @@ class Tree(GraphInterface):
 
     def edge_destination(self, edge):
         frm, to = edge
-        lprint(f"Called destination of {edge}")
+        self._log.append(f"Called destination of {edge}")
         return to
 
     def get_outgoing_edges(self, node) -> List:
         children = self.children(node)
         edges = list(map(lambda child: (node, child), children))
-        lprint(f"Edges of {node} are {edges}")
+        self._log.append(f"Edges of {node} are {edges}")
         return edges
 
+    def log(self):
+        return self._log
+
+    def clear_log(self):
+        self._log = []
 
 def mk_random_tree(n_nodes):
     tree = Tree()
@@ -192,21 +198,27 @@ def check_equivalence(tree, impl_first, impl_second,
                       visitor_maker):
     visitor_first = visitor_maker()
     visitor_second = visitor_maker()
+    tree.clear_log()
     res_first = impl_first(tree.root(), tree, visitor_first)
+    tree_log_first = tree.log().copy()
+    tree.clear_log()
     res_second = impl_second(tree.root(), tree, visitor_second)
+    tree_log_second = tree.log().copy()
+    tree.clear_log()
     assert res_first == res_second
     assert_lists_eq(visitor_first.log(), visitor_second.log())
+    assert_lists_eq(tree_log_first, tree_log_second)
 
 
-random.seed(54)
 
 etalon = dfs
-alternative = dfs_explicit_no_flow_controll
+alternative = dfs_explicit
 
 
 def test_dfs_and_stack_dfs_equivalence_no_flow():
-    for size in range(20):
-        print(size)
+    random.seed(54)
+    for size in range(120):
+        print(f"\n{size}", end='')
         for attempt in range(10):
             print(".", end='')
             tree = mk_random_tree(size)
@@ -216,13 +228,15 @@ def test_dfs_and_stack_dfs_equivalence_no_flow():
 
 
 def test_dfs_and_stack_dfs_equivalence():
+    random.seed(84)
     counter = 0
-    for size in range(20):
-        print(size)
+    for size in range(120):
+        print(f"\n{size}", end='')
         for attempt in range(10):
             counter += 1
             print(".", end='')
             tree = mk_random_tree(size)
             seed_str = f"({counter})"
+            visitor_maker = lambda: LoggingDroppingVisitor(seed=seed_str)
             check_equivalence(tree, impl_first=etalon, impl_second=alternative,
-                              visitor_maker=lambda: LoggingDroppingVisitor(seed=seed_str))
+                              visitor_maker=visitor_maker)
