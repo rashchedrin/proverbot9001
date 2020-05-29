@@ -330,7 +330,7 @@ def dfs_explicit(initial_node,
             continue
         if vis_res.do_skip:
             continue
-        children_of[cur_node].insert(0, child)
+        children_of[cur_node].append(child)
         nodes_to_visit.append(child)
     return node_results[initial_node]
 

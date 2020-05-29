@@ -120,7 +120,8 @@ class EventLoggingVisitor(TreeTraverseVisitor):
         return self._log
 
 
-def hash_bit(seed: str, divisor=5):
+def hash_bit(seed: str, divisor=10):
+    assert isinstance(seed, str)
     return hash(seed) % divisor == 0
 
 
@@ -128,37 +129,46 @@ def hashrandom_visitor_result(seed: str):
     do_return = hash_bit("0|" + seed)
     do_skip = hash_bit("1|" + seed)
     do_break = hash_bit("2|" + seed)
-    what_return = seed + str((do_return, do_skip, do_break))
+    # what_return = f"(\n\tseed:(*\n" + seed + f"\n*)\n\tret:{do_return}, skip:{do_skip}, break:{do_break}\n)"
+    what_return = seed
     return TraverseVisitorResult(do_return=do_return, what_return=what_return,
                                  do_skip=do_skip, do_break=do_break)
 
 
 class LoggingDroppingVisitor(TreeTraverseVisitor):
+    """
+    Logs all events. Returns hashrandom answer
+    """
     def __init__(self, do_print: bool = False, seed: str = "deadbeef"):
         self._log = []
         self._print = print if do_print else lambda x: None
         self._seed = seed
+        self._nonce = 100
+
+    def _next_sonce(self):
+        self._nonce += 1
+        return str(self._nonce)
 
     def on_enter(self, graph: GraphInterface, entered_node) -> TraverseVisitorResult:
         logged = ("on_enter", entered_node)
         self._print(logged)
         self._log.append(logged)
         super().on_enter(graph, entered_node)
-        return hashrandom_visitor_result(str(logged) + str(self._seed))
+        return hashrandom_visitor_result(str(self._next_sonce()) +"|on_enter|" + str(self._seed))
 
     def on_traveling_edge(self, graph: GraphInterface, frm, edge) -> TraverseVisitorResult:
         logged = ("on_traveling_edge", frm, edge)
         self._print(logged)
         self._log.append(logged)
         super().on_traveling_edge(graph, frm, edge)
-        return hashrandom_visitor_result(str(logged) + str(self._seed))
+        return hashrandom_visitor_result(str(self._next_sonce()) +"|on_traveling_edge|" + str(self._seed))
 
     def on_discover(self, graph: GraphInterface, frm, discovered) -> TraverseVisitorResult:
         logged = ("on_discover", frm, discovered)
         self._print(logged)
         self._log.append(logged)
         super().on_discover(graph, frm, discovered)
-        return hashrandom_visitor_result(str(logged) + str(self._seed))
+        return hashrandom_visitor_result(str(self._next_sonce()) +"|on_discover|" + str(self._seed))
 
     def on_got_result(self, graph: GraphInterface, receiver_node, sender_node, result,
                       siblings_results) -> TraverseVisitorResult:
@@ -167,7 +177,7 @@ class LoggingDroppingVisitor(TreeTraverseVisitor):
         self._print(logged)
         self._log.append(logged)
         super().on_got_result(graph, receiver_node, sender_node, result, siblings_results)
-        return hashrandom_visitor_result(str(logged) + str(self._seed))
+        return hashrandom_visitor_result(str(self._next_sonce()) +"|on_got_result|" + str(self._seed))
 
     def on_exit(self, graph: GraphInterface, node_left, all_children_results, stage,
                 suggested_result) -> TraverseVisitorResult:
@@ -176,7 +186,7 @@ class LoggingDroppingVisitor(TreeTraverseVisitor):
         self._print(logged)
         self._log.append(logged)
         super().on_exit(graph, node_left, all_children_results, stage, suggested_result)
-        return hashrandom_visitor_result(str(logged) + str(self._seed))
+        return hashrandom_visitor_result(str(self._next_sonce()) +"|on_exit|" + str(self._seed))
 
     def log(self):
         return self._log
@@ -205,9 +215,11 @@ def check_equivalence(tree, impl_first, impl_second,
     res_second = impl_second(tree.root(), tree, visitor_second)
     tree_log_second = tree.log().copy()
     tree.clear_log()
-    assert res_first == res_second
     assert_lists_eq(visitor_first.log(), visitor_second.log())
     assert_lists_eq(tree_log_first, tree_log_second)
+    if res_first != res_second:
+        print(tree)
+    assert res_first == res_second
 
 
 
@@ -230,13 +242,15 @@ def test_dfs_and_stack_dfs_equivalence_no_flow():
 def test_dfs_and_stack_dfs_equivalence():
     random.seed(84)
     counter = 0
-    for size in range(120):
-        print(f"\n{size}", end='')
-        for attempt in range(10):
+    for size in range(80):
+        print(random.randint(1, 100000))
+        print(f"\n{size} ", end='')
+        for attempt in range(100):
             counter += 1
-            print(".", end='')
+            print(counter, end=' ')
             tree = mk_random_tree(size)
             seed_str = f"({counter})"
-            visitor_maker = lambda: LoggingDroppingVisitor(seed=seed_str)
+            def visitor_maker():
+                return LoggingDroppingVisitor(seed=seed_str)
             check_equivalence(tree, impl_first=etalon, impl_second=alternative,
                               visitor_maker=visitor_maker)
