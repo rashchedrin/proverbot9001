@@ -72,38 +72,49 @@ def mk_random_tree(n_nodes):
 
 
 class EventLoggingVisitor(TreeTraverseVisitor):
-    def __init__(self):
+    def __init__(self, do_print=False):
         self._log = []
+        self.print = print if do_print else lambda x: None
 
     def on_enter(self, graph: GraphInterface, entered_node) -> TraverseVisitorResult:
-        self._log += [("on_enter", entered_node)]
+        logged = ("on_enter", entered_node)
+        self.print(logged)
+        self._log.append(logged)
         return super().on_enter(graph, entered_node)
 
     def on_traveling_edge(self, graph: GraphInterface, frm, edge) -> TraverseVisitorResult:
-        self._log += [("on_traveling_edge", frm, edge)]
+        logged = ("on_traveling_edge", frm, edge)
+        self.print(logged)
+        self._log.append(logged)
         return super().on_traveling_edge(graph, frm, edge)
 
     def on_discover(self, graph: GraphInterface, frm, discovered) -> TraverseVisitorResult:
-        self._log += [("on_discover", frm, discovered)]
+        logged = ("on_discover", frm, discovered)
+        self.print(logged)
+        self._log.append(logged)
         return super().on_discover(graph, frm, discovered)
 
     def on_got_result(self, graph: GraphInterface, receiver_node, sender_node, result,
                       siblings_results) -> TraverseVisitorResult:
-        self._log += [("on_got_result", receiver_node, sender_node, result,
-                       siblings_results)]
+        logged = ("on_got_result", receiver_node, sender_node, result,
+                  siblings_results.copy())
+        self.print(logged)
+        self._log.append(logged)
         return super().on_got_result(graph, receiver_node, sender_node, result, siblings_results)
 
     def on_exit(self, graph: GraphInterface, node_left, all_children_results, stage,
                 suggested_result) -> TraverseVisitorResult:
-        self._log += [("on_exit", node_left, all_children_results, stage,
-                       suggested_result)]
+        logged = ("on_exit", node_left, all_children_results.copy(), stage,
+                  suggested_result)
+        self.print(logged)
+        self._log.append(logged)
         return super().on_exit(graph, node_left, all_children_results, stage, suggested_result)
 
     def log(self):
         return self._log
 
-def assert_lists_eq(first, second):
 
+def assert_lists_eq(first, second):
     all_ok = first == second
     if not all_ok:
         for i, (a, b) in enumerate(zip(first, second)):
@@ -124,14 +135,13 @@ def check_equivalence(tree, impl_first, impl_second,
     assert res_first == res_second
     assert_lists_eq(visitor_first.log(), visitor_second.log())
 
-
+random.seed(54)
 def test_dfs_and_stack_dfs_equivalence():
     for size in range(20):
         print(size)
         for attempt in range(10):
             print(".", end='')
             tree = mk_random_tree(size)
-            check_equivalence(tree, impl_first=dfs, impl_second=dfs_explicit,
-                              visitor_maker=EventLoggingVisitor)
+            check_equivalence(tree, impl_first=dfs, impl_second=dfs_explicit_no_flow_controll,
+                              visitor_maker=lambda: EventLoggingVisitor())
             # todo: check equivalence for flow controll
-
