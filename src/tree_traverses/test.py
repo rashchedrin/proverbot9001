@@ -241,7 +241,7 @@ def test_dfs_and_stack_dfs_equivalence_no_flow():
 def test_dfs_and_stack_dfs_equivalence():
     random.seed(84)
     counter = 0
-    for size in range(80):
+    for size in range(100):
         print(random.randint(1, 100000))
         print(f"\n{size} ", end='')
         for attempt in range(100):

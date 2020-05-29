@@ -65,12 +65,6 @@ def dfs_explicit(initial_node,
     parents: Dict[int, Optional[int]] = {initial_node: None}
     is_opened: Dict[int, bool] = defaultdict(bool)
 
-    def mark_visited_recursive(node):
-        if node not in node_results:
-            node_results[node] = "IRRELEVANT"
-        for child in children_of[node]:
-            mark_visited_recursive(child)
-
     edge_generators = {}
 
     def close(node, stage, suggested_result, nodes_to_visit):
@@ -82,7 +76,6 @@ def dfs_explicit(initial_node,
                                   stage=stage, suggested_result=suggested_result)
         node_value = vis_res.what_return if vis_res.do_overwrite_result or stage == ExitStage.EXIT else suggested_result
         node_results[node] = node_value
-        mark_visited_recursive(node)  # todo: is it necessary?
 
         if node != initial_node:  # send result to parent
             siblings_result = [node_results[child] for child in children_of[parents[node]] if child in node_results]
