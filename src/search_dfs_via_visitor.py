@@ -16,7 +16,7 @@ from search_file import (SearchResult, SubSearchResult, SearchGraph, LabeledNode
                          SearchStatus, TqdmSpy)
 from util import (eprint, escape_lemma_name,
                   mybarfmt)
-from graph_traverses import dfs, TreeTraverseVisitor, GraphInterface, TraverseVisitorResult
+from tree_traverses import dfs, TreeTraverseVisitor, GraphInterface, TraverseVisitorResult
 
 
 def get_relevant_lemmas(args, coq):
@@ -247,7 +247,7 @@ class CoqVisitor(TreeTraverseVisitor):
         # print(f"Launched from {entered_node.state_id}")
         return super().on_enter(graph, entered_node)
 
-    def on_got_edge(self, graph: CoqGraphInterface, frm: CoqGraphNode, edge: Edge) -> TraverseVisitorResult:
+    def on_traveling_edge(self, graph: CoqGraphInterface, frm: CoqGraphNode, edge: Edge) -> TraverseVisitorResult:
         """limit search width"""
         if self._num_successful_predictions[frm.state_id] >= self._args.search_width:
             return TraverseVisitorResult(do_break=True)

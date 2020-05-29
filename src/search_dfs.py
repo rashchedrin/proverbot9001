@@ -14,7 +14,7 @@ from search_file import (SearchResult, SubSearchResult, SearchGraph, LabeledNode
                          SearchStatus, TqdmSpy)
 from util import (eprint, escape_lemma_name,
                   mybarfmt)
-from graph_traverses import dfs, TreeTraverseVisitor
+from tree_traverses import dfs, TreeTraverseVisitor
 
 
 def get_relevant_lemmas(args, coq):
