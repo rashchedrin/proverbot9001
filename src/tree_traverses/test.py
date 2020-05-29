@@ -120,8 +120,8 @@ class EventLoggingVisitor(TreeTraverseVisitor):
         return self._log
 
 
-def hash_bit(seed: str):
-    return hash(seed) % 2 == 0
+def hash_bit(seed: str, divisor=5):
+    return hash(seed) % divisor == 0
 
 
 def hashrandom_visitor_result(seed: str):
