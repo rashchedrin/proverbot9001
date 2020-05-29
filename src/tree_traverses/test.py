@@ -69,8 +69,8 @@ class Tree(GraphInterface):
     def clear_log(self):
         self._log = []
 
-def mk_random_tree(n_nodes):
-    tree = Tree()
+def mk_random_tree(n_nodes, tree_class=Tree):
+    tree = tree_class()
     for _ in range(n_nodes):
         parent = random.randint(0, tree.size() - 1)
         tree.add_child(parent)
@@ -224,8 +224,36 @@ def check_equivalence(tree, impl_first, impl_second,
 
 
 etalon = dfs
-alternative = dfs_explicit
+alternative = dfs_non_recursive_no_hashes
 
+def test_dfs_no_hashes():
+    class TreeU(Tree):
+
+        def edge_destination(self, edge):
+            return [super().edge_destination(edge)]
+
+        def get_outgoing_edges(self, node) -> List:
+            return super().get_outgoing_edges(node[0])
+
+        def root(self):
+            return [super().root()]
+
+    random.seed(34)
+    counter = 0
+    for size in range(100):
+        print(random.randint(1, 100000))
+        print(f"\n{size} ", end='')
+        for attempt in range(10):
+            counter += 1
+            print(counter, end=' ')
+            tree = mk_random_tree(size, TreeU)
+            seed_str = f"({counter})"
+
+            def visitor_maker():
+                return LoggingDroppingVisitor(seed=seed_str)
+
+            check_equivalence(tree, impl_first=etalon, impl_second=alternative,
+                              visitor_maker=visitor_maker)
 
 def test_dfs_and_stack_dfs_equivalence_no_flow():
     random.seed(54)
@@ -253,3 +281,6 @@ def test_dfs_and_stack_dfs_equivalence():
                 return LoggingDroppingVisitor(seed=seed_str)
             check_equivalence(tree, impl_first=etalon, impl_second=alternative,
                               visitor_maker=visitor_maker)
+
+
+
