@@ -274,13 +274,6 @@ def dfs_explicit(initial_node,
                 close(parents[node], ExitStage.EXIT, None, nodes_to_visit)
                 return
 
-        # propagate # todo: figure out if it works without propagation
-        # parent = parents[node]
-        # if parent is not None:
-        #     siblings = children_of[parent]
-        #     if all([sibling in node_results for sibling in siblings]):
-        #         close(parent, ExitStage.EXIT, None, nodes_to_visit)
-
     def edge_getter(node_id):
         nonlocal edge_generators
         if node_id not in edge_generators:
@@ -291,8 +284,6 @@ def dfs_explicit(initial_node,
 
     while nodes_to_visit:
         cur_node: int = nodes_to_visit[-1]
-        if cur_node in node_results: # todo: is this necessary?
-            continue
 
         if not is_opened[cur_node]:
             vis_res = visitor.on_enter(tree, entered_node=cur_node)

@@ -236,7 +236,6 @@ def test_dfs_and_stack_dfs_equivalence_no_flow():
             tree = mk_random_tree(size)
             check_equivalence(tree, impl_first=etalon, impl_second=alternative,
                               visitor_maker=lambda: EventLoggingVisitor())
-            # todo: check equivalence for flow controll
 
 
 def test_dfs_and_stack_dfs_equivalence():
