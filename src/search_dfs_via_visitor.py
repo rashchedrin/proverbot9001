@@ -16,7 +16,7 @@ from search_file import (SearchResult, SubSearchResult, SearchGraph, LabeledNode
                          SearchStatus, TqdmSpy)
 from util import (eprint, escape_lemma_name,
                   mybarfmt)
-from tree_traverses import dfs, TreeTraverseVisitor, GraphInterface, TraverseVisitorResult
+from tree_traverses import dfs_non_recursive_no_hashes, bfs, TreeTraverseVisitor, GraphInterface, TraverseVisitorResult
 
 
 def get_relevant_lemmas(args, coq):
@@ -57,13 +57,6 @@ def cancel_until_state(coq: serapi_instance.SerapiInstance,
             err = f"Attempt to cancel root, while trying to get from {frm} to {desired_state}, because {msg}"
             raise RuntimeError(err)
         coq.cancel_last()
-
-
-def goto_state_fake(coq: serapi_instance.SerapiInstance,
-                    desired_state: int,
-                    args: argparse.Namespace,
-                    msg: Optional[str] = None):  # Todo: make real
-    return cancel_until_state(coq, desired_state, args, msg)
 
 
 def delete_duplicates(seq):
@@ -126,6 +119,7 @@ class CoqGraphNode(NamedTuple):
     is_proof_completed: bool
     state_id: int
     vis_node: LabeledNode
+    previous_state_id: Optional[int]
 
 
 class CoqGraphInterface(GraphInterface):
@@ -147,9 +141,39 @@ class CoqGraphInterface(GraphInterface):
 
         # todo: figure out correct initialization
         root_node = CoqGraphNode(coq.proof_context, None, None, completed_proof(coq), coq.cur_state,
-                                 self._vis_graph.start_node)
+                                 self._vis_graph.start_node, None)
         self._state_id_to_node[root_node.state_id] = root_node
         self.root = root_node
+
+    def _ids_on_path_to_root(self, state_id: int) -> List[int]:
+        """
+        Returns ids on path to root, in order state_id, ... , root_state_id
+        """
+        cur_node = self._state_id_to_node[state_id]
+        path = [cur_node.state_id]
+        while cur_node.previous_state_id is not None:
+            path.append(cur_node.previous_state_id)
+            cur_node = self._state_id_to_node[cur_node.previous_state_id]
+        return path
+
+    def _closest_common_ancestor(self, state_id_first: int, state_id_second: int) -> int:
+        path_first: List[int] = list(reversed(self._ids_on_path_to_root(state_id_first)))
+        path_second: List[int] = list(reversed(self._ids_on_path_to_root(state_id_second)))
+        for i in range(min(len(path_first), len(path_second))):
+            if path_first[i] != path_second[i]:
+                return path_first[i - 1]
+        return path_first[min(len(path_first), len(path_second))]
+
+    def _redo_to_state(self, state_id):
+        commands = commands_from_to(self._coq.cur_state, state_id)
+        for command in commands:
+            self._coq.run_stmt(command)
+        pass
+
+    def _goto_state_fake(self,
+                         desired_state_id: int,
+                         msg: Optional[str] = None):  # Todo: make real
+        cancel_until_state(self._coq, desired_state_id, self._args, msg)
 
     def get_outgoing_edges(self, node: CoqGraphNode) -> List[Edge]:
         """
@@ -160,7 +184,7 @@ class CoqGraphInterface(GraphInterface):
         if node.state_id in self._memoized_outgoing_edges:
             # print(f"Edges recalled ({len(self._memoized_outgoing_edges[node.state_id])})")
             return self._memoized_outgoing_edges[node.state_id]
-        goto_state_fake(self._coq, node.state_id, self._args, "get outgoing edges")
+        self._goto_state_fake(node.state_id, "get outgoing edges")
         predictions = predict_k_tactics(self._coq, self._args, self._args.max_attempts)
         edges = [Edge(node.state_id, pred) for pred in predictions]
         self._memoized_outgoing_edges[node.state_id] = edges
@@ -181,7 +205,7 @@ class CoqGraphInterface(GraphInterface):
             return self._memoized_outgoing_edges[edge]
         if self._coq.cur_state != edge.frm:
             # print(f"mov {self._coq.cur_state} => {edge.frm} {edge.tactic}", end='')
-            goto_state_fake(self._coq, edge.frm, self._args, "goto edge source")
+            self._goto_state_fake(edge.frm, "goto edge source")
         context_before = self._coq.proof_context
         parent_vis_node = self._state_id_to_node[edge.frm].vis_node
         context_after, _, \
@@ -196,7 +220,7 @@ class CoqGraphInterface(GraphInterface):
         new_vis_node = self._vis_graph.mkNode(edge.tactic, context_before, parent_vis_node)
         new_vis_node.time_taken = time_taken
         new_node = CoqGraphNode(context_after, subgoals_opened, subgoals_closed, is_proof_completed,
-                                new_state, new_vis_node)
+                                new_state, new_vis_node, edge.frm)
         self._state_id_to_node[new_state] = new_node
         self._memoized_outgoing_edges[edge] = new_node
         assert new_state != edge.frm
@@ -250,7 +274,7 @@ class CoqVisitor(TreeTraverseVisitor):
     def on_traveling_edge(self, graph: CoqGraphInterface, frm: CoqGraphNode, edge: Edge) -> TraverseVisitorResult:
         """limit search width"""
         if self._num_successful_predictions[frm.state_id] >= self._args.search_width:
-            return TraverseVisitorResult(do_break=True)
+            return TraverseVisitorResult(stop_discovering_edges=True)
         return TraverseVisitorResult()
 
     def on_discover(self, graph: CoqGraphInterface,
@@ -365,9 +389,9 @@ def dfs_proof_search_with_graph_visitor(lemma_statement: str,
         # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
         visitor = CoqVisitor(pbar, g, args, coq.cur_state)
         graph_interface = CoqGraphInterface(coq, args, g)
-        command_list, _ = dfs(graph_interface.root,
-                              graph_interface,
-                              visitor)
+        command_list, _ = dfs_non_recursive_no_hashes(graph_interface.root,
+                                                      graph_interface,
+                                                      visitor)
         pbar.clear()
     module_prefix = escape_lemma_name(module_name)
 
