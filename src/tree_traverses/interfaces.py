@@ -49,3 +49,16 @@ class ExitStage(Enum):
     NODE_DISCOVERED = auto()
     EXIT = auto()
     GOT_RESULT = auto()
+
+
+class BestFirstSearchVisitor(TreeTraverseVisitor):
+    """
+    Inherit your best_first_search visitor from this class.
+    You must override leaf_picker!
+    see also TreeTraverseVisitor for such events as on_enter, on_exit, etc.
+    """
+    def leaf_picker(self, tree, leaves) -> int:
+        """
+        Must pick which leaf will be expanded, and return its position in leafs array
+        """
+        raise NotImplementedError

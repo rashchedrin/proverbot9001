@@ -7,7 +7,7 @@ from collections import defaultdict
 from enum import Enum
 from functools import total_ordering
 
-from tree_traverses.interfaces import GraphInterface, TreeTraverseVisitor, ExitStage
+from tree_traverses.interfaces import GraphInterface, TreeTraverseVisitor, ExitStage, BestFirstSearchVisitor
 
 
 def dfs(initial_node,
@@ -254,9 +254,8 @@ class BfsNodeState(Enum):
 
 
 def bdfs(initial_node,
-        tree: GraphInterface,
-        visitor: TreeTraverseVisitor, ):
-    # todo: test
+         tree: GraphInterface,
+         visitor: TreeTraverseVisitor, ):
     """
     Nodes can be:
         Opened: we've visited it, and called visitor.on_enter
@@ -544,11 +543,11 @@ def bfs(initial_node,
         ids_to_visit.append(child_id)
     return node_results[initial_node_id]
 
+
 def best_first_search(initial_node,
-        tree: GraphInterface,
-        visitor: TreeTraverseVisitor,
-        edges_score_function):
-    # todo: implement
+                      tree: GraphInterface,
+                      visitor: BestFirstSearchVisitor, ):
+    # todo: test
     """
     Nodes can be:
         Opened: we've visited it, and called visitor.on_enter
@@ -576,25 +575,34 @@ def best_first_search(initial_node,
     def empty_generator():
         yield from []
 
-    def mark_expanded(node_id: int, ids_to_visit: List[int]):
+    def mark_expanded(node_id: int):
         if node_state[node_id] == BfsNodeState.EXPANDED:
             return
         promote(node_id, BfsNodeState.EXPANDED)
         ids_to_visit.remove(node_id)  # todo: make more efficient by remembering pos of node
         edge_generators[node_id] = empty_generator()
         if all(node_state[child_id] == BfsNodeState.CLOSED for child_id in children_of[node_id]):
-            close(node_id, ExitStage.EXIT, None, ids_to_visit)
+            close(node_id, ExitStage.EXIT, None)
 
-    def close(node_id: int, stage: ExitStage, suggested_result, ids_to_visit: List[int]):
+    def mark_subtree_deleted(subtree_root_id: int):
+        children = children_of[subtree_root_id]
+        promote(subtree_root_id, BfsNodeState.DELETED)
+        try:
+            ids_to_visit.remove(subtree_root_id)
+        except ValueError:
+            pass
+        for child_id in children:
+            mark_subtree_deleted(child_id)
+
+    def close(node_id: int, stage: ExitStage, suggested_result):
         """
         Set value. Mark closed.
         """
-        if node_state[node_id] == BfsNodeState.CLOSED:
+        if node_state[node_id] in [BfsNodeState.CLOSED, BfsNodeState.DELETED]:
             return
 
         if node_state[node_id] < BfsNodeState.EXPANDED:
             promote(node_id, BfsNodeState.EXPANDED)
-            ids_to_visit.remove(node_id)  # todo: make more efficient by remembering pos of node
             edge_generators[node_id] = empty_generator()
 
         all_children_results = [node_results[child] for child in children_of[node_id] if child in node_results]
@@ -603,6 +611,7 @@ def best_first_search(initial_node,
         node_value = vis_res.what_return if vis_res.do_overwrite_result or stage == ExitStage.EXIT \
             else suggested_result
         node_results[node_id] = node_value
+        mark_subtree_deleted(node_id)
         promote(node_id, BfsNodeState.CLOSED)
 
         if node_id != initial_node_id:  # send result to parent
@@ -614,15 +623,15 @@ def best_first_search(initial_node,
                                             result=node_value,
                                             siblings_results=siblings_result)
             if vis_res.do_return:
-                close(reciever_id, ExitStage.GOT_RESULT, vis_res.what_return, ids_to_visit)
+                close(reciever_id, ExitStage.GOT_RESULT, vis_res.what_return)
                 return
             if vis_res.stop_discovering_edges:
-                mark_expanded(reciever_id, ids_to_visit)
+                mark_expanded(reciever_id)
                 return
             # propagate if can
             if node_state[reciever_id] == BfsNodeState.EXPANDED \
                     and all(node_state[child_id] == BfsNodeState.CLOSED for child_id in children_of[reciever_id]):
-                close(reciever_id, ExitStage.EXIT, None, ids_to_visit)
+                close(reciever_id, ExitStage.EXIT, None)
                 return
 
     def edge_getter(node_id: int):
@@ -635,13 +644,15 @@ def best_first_search(initial_node,
         return edge_generators[node_id]
 
     while ids_to_visit:
-        cur_node_id: int = ids_to_visit[0]
+        leaf_index = visitor.leaf_picker(tree=tree,
+                                         leaves=[nodes[id] for id in ids_to_visit])  # todo: can optimize here.
+        cur_node_id: int = ids_to_visit[leaf_index]
 
         if node_state[cur_node_id] == BfsNodeState.UNVISITED:
             vis_res = visitor.on_enter(tree, entered_node=nodes[cur_node_id])
             promote(cur_node_id, BfsNodeState.OPENED)
             if vis_res.do_return:
-                close(cur_node_id, ExitStage.ENTRANCE, vis_res.what_return, ids_to_visit)
+                close(cur_node_id, ExitStage.ENTRANCE, vis_res.what_return)
                 continue
 
         # if has remaining edges, get one
@@ -649,15 +660,15 @@ def best_first_search(initial_node,
             generator = edge_getter(cur_node_id)
             edge = next(generator)
         except StopIteration:
-            mark_expanded(cur_node_id, ids_to_visit)
+            mark_expanded(cur_node_id)
             continue
 
         vis_res = visitor.on_traveling_edge(graph=tree, frm=nodes[cur_node_id], edge=edge)
         if vis_res.do_return:
-            close(cur_node_id, ExitStage.TRAVELING_EDGE, vis_res.what_return, ids_to_visit)
+            close(cur_node_id, ExitStage.TRAVELING_EDGE, vis_res.what_return)
             continue
         if vis_res.stop_discovering_edges:
-            mark_expanded(cur_node_id, ids_to_visit)
+            mark_expanded(cur_node_id)
             continue
         if vis_res.do_skip:
             continue
@@ -669,10 +680,10 @@ def best_first_search(initial_node,
         parents[child_id] = cur_node_id
         vis_res = visitor.on_discover(tree, frm=nodes[cur_node_id], discovered=child)
         if vis_res.do_return:
-            close(cur_node_id, ExitStage.NODE_DISCOVERED, vis_res.what_return, ids_to_visit)
+            close(cur_node_id, ExitStage.NODE_DISCOVERED, vis_res.what_return)
             continue
         if vis_res.stop_discovering_edges:
-            mark_expanded(cur_node_id, ids_to_visit)
+            mark_expanded(cur_node_id)
             continue
         if vis_res.do_skip:
             continue
