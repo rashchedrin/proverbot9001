@@ -16,7 +16,8 @@ from search_file import (SearchResult, SubSearchResult, SearchGraph, LabeledNode
                          SearchStatus, TqdmSpy)
 from util import (eprint, escape_lemma_name,
                   mybarfmt)
-from tree_traverses import dfs_non_recursive_no_hashes, bfs, TreeTraverseVisitor, GraphInterface, TraverseVisitorResult
+from tree_traverses import dfs_non_recursive_no_hashes, bfs, dfs, TreeTraverseVisitor, GraphInterface, \
+    TraverseVisitorResult
 
 
 def get_relevant_lemmas(args, coq):
@@ -403,9 +404,49 @@ def dfs_proof_search_with_graph_visitor(lemma_statement: str,
         # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
         visitor = CoqVisitor(pbar, g, args, coq.cur_state)
         graph_interface = CoqGraphInterface(coq, args, g)
+        command_list, _ = dfs(graph_interface.root,
+                              graph_interface,
+                              visitor)
+        pbar.clear()
+    module_prefix = escape_lemma_name(module_name)
+
+    if lemma_name == "":
+        search_file.unnamed_goal_number += 1
+        g.draw(f"{args.output_dir}/{module_prefix}{lemma_name}"
+               f"{search_file.unnamed_goal_number}.svg")
+    else:
+        g.draw(f"{args.output_dir}/{module_prefix}{lemma_name}.svg")
+
+    if command_list:
+        return SearchResult(SearchStatus.SUCCESS, command_list)
+    if visitor.has_unexplored_node:
+        return SearchResult(SearchStatus.INCOMPLETE, None)
+    return SearchResult(SearchStatus.FAILURE, None)
+
+
+def bfs_proof_search_with_graph_visitor(lemma_statement: str,
+                                        module_name: Optional[str],
+                                        coq: serapi_instance.SerapiInstance,
+                                        args: argparse.Namespace,
+                                        bar_idx: int) -> SearchResult:
+    lemma_name = serapi_instance.lemma_name_from_statement(lemma_statement)
+    g = SearchGraph(lemma_name)
+
+    # Run search, and draw some interface
+    total_nodes = numNodesInTree(args.search_width,
+                                 args.search_depth + 2) - 1
+
+    with TqdmSpy(total=total_nodes, unit="pred", file=sys.stdout,
+                 desc="Proof", disable=(not args.progress),
+                 leave=False,
+                 position=((bar_idx * 2) + 1),
+                 dynamic_ncols=True, bar_format=mybarfmt) as pbar:
+        # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
+        visitor = CoqVisitor(pbar, g, args, coq.cur_state)
+        graph_interface = CoqGraphInterface(coq, args, g)
         command_list, _ = bfs(graph_interface.root,
-                                                      graph_interface,
-                                                      visitor)
+                              graph_interface,
+                              visitor)
         pbar.clear()
     module_prefix = escape_lemma_name(module_name)
 
