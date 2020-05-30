@@ -403,7 +403,7 @@ def dfs_proof_search_with_graph_visitor(lemma_statement: str,
         # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
         visitor = CoqVisitor(pbar, g, args, coq.cur_state)
         graph_interface = CoqGraphInterface(coq, args, g)
-        command_list, _ = dfs_non_recursive_no_hashes(graph_interface.root,
+        command_list, _ = bfs(graph_interface.root,
                                                       graph_interface,
                                                       visitor)
         pbar.clear()
