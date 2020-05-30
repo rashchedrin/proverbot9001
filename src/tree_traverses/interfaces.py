@@ -8,7 +8,7 @@ class TraverseVisitorResult:
     do_return: bool = False  # for any visitor
     what_return: Any = None  # for any visitor
     do_skip: bool = False  # for visitor_on_discover: skip this child
-    do_break: bool = False  # for visitor_on_discover and visitor_on_got_result: stop children discovery
+    stop_discovering_edges: bool = False  # for visitor_on_discover and visitor_on_got_result: stop children discovery
     do_overwrite_result = False  # for visitor_on_exit. Iff true, returned value will be overwritten by the new one
 
 

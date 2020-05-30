@@ -128,11 +128,11 @@ def hash_bit(seed: str, divisor=10):
 def hashrandom_visitor_result(seed: str):
     do_return = hash_bit("0|" + seed)
     do_skip = hash_bit("1|" + seed)
-    do_break = hash_bit("2|" + seed)
-    # what_return = f"(\n\tseed:(*\n" + seed + f"\n*)\n\tret:{do_return}, skip:{do_skip}, break:{do_break}\n)"
+    stop_discovering_edges = hash_bit("2|" + seed)
+    # what_return = f"(\n\tseed:(*\n" + seed + f"\n*)\n\tret:{do_return}, skip:{do_skip}, break:{stop_discovering_edges}\n)"
     what_return = seed
     return TraverseVisitorResult(do_return=do_return, what_return=what_return,
-                                 do_skip=do_skip, do_break=do_break)
+                                 do_skip=do_skip, stop_discovering_edges=stop_discovering_edges)
 
 
 class LoggingDroppingVisitor(TreeTraverseVisitor):
@@ -225,6 +225,7 @@ def check_equivalence(tree, impl_first, impl_second,
 
 etalon = dfs
 alternative = dfs_non_recursive_no_hashes
+alternative = bdfs
 
 def test_dfs_no_hashes():
     class TreeU(Tree):
