@@ -165,15 +165,18 @@ class CoqGraphInterface(GraphInterface):
         return path_first[min(len(path_first), len(path_second))]
 
     def _redo_to_state(self, state_id):
-        commands = commands_from_to(self._coq.cur_state, state_id)
-        for command in commands:
-            self._coq.run_stmt(command)
-        pass
+        cmds_and_newtips = commands_from_to(self._coq.cur_state, state_id)
+        for cmd_and_newtip in cmds_and_newtips:
+            cmd, newtip = cmd_and_newtip
+            self._coq.run_stmt(cmd, newtip=newtip)
+            assert self._coq.cur_state == newtip
 
     def _goto_state_fake(self,
                          desired_state_id: int,
                          msg: Optional[str] = None):  # Todo: make real
-        cancel_until_state(self._coq, desired_state_id, self._args, msg)
+        cancel_until = self._closest_common_ancestor(self._coq.cur_state, desired_state_id)
+        cancel_until_state(self._coq, cancel_until, self._args, msg)
+        self._redo_to_state(desired_state_id)
 
     def get_outgoing_edges(self, node: CoqGraphNode) -> List[Edge]:
         """

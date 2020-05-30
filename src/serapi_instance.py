@@ -473,7 +473,7 @@ class SerapiInstance(threading.Thread):
     # class. Sends a single command to the running serapi
     # instance. Returns nothing: if you want a response, call one of
     # the other methods to get it.
-    def run_stmt(self, stmt : str, timeout : Optional[int]=None):
+    def run_stmt(self, stmt : str, timeout : Optional[int]=None, newtip: Optional[int] = None):
         if timeout:
             old_timeout = self.timeout
             self.timeout = timeout
@@ -494,12 +494,17 @@ class SerapiInstance(threading.Thread):
         try:
             # Preprocess_command sometimes turns one command into two,
             # to get around some limitations of the serapi interface.
-            for stm in preprocess_command(stmt):
+            preprocessed_commands = preprocess_command(stmt)
+            for i_stm, stm in enumerate(preprocessed_commands):
                 self.add_potential_module_stack_cmd(stm)
                 # Get initial context
                 # Send the command
                 assert self.message_queue.empty(), self.messages
-                self.send_acked("(Add () \"{}\")\n".format(stm))
+                # if it's last command, and newtip is given, then set it
+                if newtip is not None and i_stm + 1 == len(preprocessed_commands):
+                    self.send_acked("(Add ((newtip {})) \"{}\")\n".format(newtip, stm))
+                else:
+                    self.send_acked("(Add () \"{}\")\n".format(stm))
                 # Get the response, which indicates what state we put
                 # serapi in.
                 self.update_state()
