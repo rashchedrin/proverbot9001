@@ -164,8 +164,19 @@ class CoqGraphInterface(GraphInterface):
                 return path_first[i - 1]
         return path_first[min(len(path_first), len(path_second))]
 
+    def _commands_and_newtips_from_to(self, id_from: int, id_to: int) -> List[Tuple[str, int]]:
+        """
+        returns list of commands (from, .. to]
+        """
+        reversed_commands_and_tips = []
+        cur_node = self._state_id_to_node[id_to]
+        while cur_node.state_id != id_from:
+            reversed_commands_and_tips.append((cur_node.vis_node.prediction, cur_node.state_id))
+            cur_node = self._state_id_to_node[cur_node.previous_state_id]
+        return list(reversed(reversed_commands_and_tips))
+
     def _redo_to_state(self, state_id):
-        cmds_and_newtips = commands_from_to(self._coq.cur_state, state_id)
+        cmds_and_newtips = self._commands_and_newtips_from_to(self._coq.cur_state, state_id)
         for cmd_and_newtip in cmds_and_newtips:
             cmd, newtip = cmd_and_newtip
             self._coq.run_stmt(cmd, newtip=newtip)
