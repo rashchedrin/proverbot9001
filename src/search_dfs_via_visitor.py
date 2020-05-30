@@ -162,7 +162,7 @@ class CoqGraphInterface(GraphInterface):
         for i in range(min(len(path_first), len(path_second))):
             if path_first[i] != path_second[i]:
                 return path_first[i - 1]
-        return path_first[min(len(path_first), len(path_second))]
+        return path_first[min(len(path_first), len(path_second)) - 1]
 
     def _commands_and_newtips_from_to(self, id_from: int, id_to: int) -> List[Tuple[str, int]]:
         """
