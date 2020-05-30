@@ -16,8 +16,10 @@ from search_file import (SearchResult, SubSearchResult, SearchGraph, LabeledNode
                          SearchStatus, TqdmSpy)
 from util import (eprint, escape_lemma_name,
                   mybarfmt)
-from tree_traverses import dfs_non_recursive_no_hashes, bfs, dfs, TreeTraverseVisitor, GraphInterface, \
+from tree_traverses import dfs_non_recursive_no_hashes, bfs, dfs, best_first_search, \
+    TreeTraverseVisitor, BestFirstSearchVisitor, GraphInterface, \
     TraverseVisitorResult
+from models.tactic_predictor import Prediction
 
 
 def get_relevant_lemmas(args, coq):
@@ -60,28 +62,31 @@ def cancel_until_state(coq: serapi_instance.SerapiInstance,
         coq.cancel_last()
 
 
-def delete_duplicates(seq):
+def delete_duplicate_predictions(predictions_and_certainties: List[Prediction]):
     """
     deletes duplicates, preserves order
+    based on
     source: https://stackoverflow.com/questions/480214/how-do-you-remove-duplicates-from-a-list-whilst-preserving-order
     (https://www.peterbe.com/plog/uniqifiers-benchmark)
     """
     seen = set()
     seen_add = seen.add
-    return [x for x in seq if not (x in seen or seen_add(x))]
+    return [x for x in predictions_and_certainties
+            if not (x.prediction in seen or seen_add(x.prediction))]
 
 
 def predict_k_tactics(coq: serapi_instance.SerapiInstance, args: argparse.Namespace, k: int) -> List:
     relevant_lemmas = get_relevant_lemmas(args, coq)
     tactic_context_before = TacticContext(relevant_lemmas, coq.prev_tactics, coq.hypotheses, coq.goals)
-    predictions = [prediction.prediction for prediction in
-                   search_file.predictor.predictKTactics(tactic_context_before, k)]
+    predictions_and_certainties = \
+        delete_duplicate_predictions(search_file.predictor.predictKTactics(tactic_context_before, k))
+    predictions = [prediction.prediction for prediction in predictions_and_certainties]
+    certainties = [prediction.certainty for prediction in predictions_and_certainties]
     if coq.use_hammer:
         predictions = add_hammer_commands(predictions)
-    without_duplicates = delete_duplicates(predictions)
     # if len(without_duplicates) != len(predictions):
     #     print(predictions)
-    return without_duplicates
+    return predictions, certainties
 
 
 def add_hammer_commands(predictions):
@@ -108,6 +113,7 @@ def update_distance_stack(extra_depth, subgoal_distance_stack, subgoals_closed, 
 class Edge(NamedTuple):
     frm: int
     tactic: str
+    certainty: float
 
 
 class CoqGraphNode(NamedTuple):
@@ -200,8 +206,8 @@ class CoqGraphInterface(GraphInterface):
             # print(f"Edges recalled ({len(self._memoized_outgoing_edges[node.state_id])})")
             return self._memoized_outgoing_edges[node.state_id]
         self._goto_state_fake(node.state_id, "get outgoing edges")
-        predictions = predict_k_tactics(self._coq, self._args, self._args.max_attempts)
-        edges = [Edge(node.state_id, pred) for pred in predictions]
+        predictions, certainties = predict_k_tactics(self._coq, self._args, self._args.max_attempts)
+        edges = [Edge(node.state_id, pred, certainty) for pred, certainty in zip(predictions, certainties)]
         self._memoized_outgoing_edges[node.state_id] = edges
         return edges
 
@@ -254,7 +260,7 @@ class CoqGraphInterface(GraphInterface):
         return self._state_id_to_node[state_id].is_proof_completed
 
 
-class CoqVisitor(TreeTraverseVisitor):
+class CoqVisitor(BestFirstSearchVisitor):
     """
     Visitor for search in coq
     Makes search return SubSearchResult
@@ -281,6 +287,7 @@ class CoqVisitor(TreeTraverseVisitor):
         self._nodes_info: Dict[int, CoqVisitor.NodeInfo] = \
             {initial_state_id: CoqVisitor.NodeInfo(0, [], [vis_graph.start_node])}
         self.has_unexplored_node: bool = False
+        self._nodes_score: Dict[int, float] = {}
 
     def on_enter(self, graph: GraphInterface, entered_node) -> TraverseVisitorResult:
         # print(f"Launched from {entered_node.state_id}")
@@ -383,6 +390,16 @@ class CoqVisitor(TreeTraverseVisitor):
         # print(f"Exiting {node_left.state_id} at stage {stage}")
         return TraverseVisitorResult(what_return=SubSearchResult(None, 0), do_return=True)
 
+    def _eval_node(self, tree: CoqGraphInterface, node: CoqGraphNode):
+        if node.state_id not in self._nodes_score:
+            outgoing_edges: List[Edge] = tree.get_outgoing_edges(node)
+            max_certainty: float = max(outgoing_edges, key=lambda e: e.certainty).certainty
+            self._nodes_score[node.state_id] = max_certainty
+        return self._nodes_score[node.state_id]
+
+    def leaf_picker(self, tree, leaves) -> int:
+        return max(range(len(leaves)), key=lambda i: self._eval_node(tree, leaves[i]))
+
 
 def dfs_proof_search_with_graph_visitor(lemma_statement: str,
                                         module_name: Optional[str],
@@ -444,7 +461,7 @@ def bfs_proof_search_with_graph_visitor(lemma_statement: str,
         # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
         visitor = CoqVisitor(pbar, g, args, coq.cur_state)
         graph_interface = CoqGraphInterface(coq, args, g)
-        command_list, _ = bfs(graph_interface.root,
+        command_list, _ = best_first_search(graph_interface.root,
                               graph_interface,
                               visitor)
         pbar.clear()
