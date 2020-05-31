@@ -224,10 +224,9 @@ def check_equivalence(tree, impl_first, impl_second,
 
 
 etalon = dfs
-alternative = dfs_non_recursive_no_hashes
-alternative = bdfs
 
-def test_dfs_no_hashes():
+@pytest.mark.parametrize("alternative", [dfs_non_recursive_no_hashes, bdfs])
+def test_dfs_no_hashes(alternative):
     class TreeU(Tree):
 
         def edge_destination(self, edge):
@@ -256,7 +255,8 @@ def test_dfs_no_hashes():
             check_equivalence(tree, impl_first=etalon, impl_second=alternative,
                               visitor_maker=visitor_maker)
 
-def test_dfs_and_stack_dfs_equivalence_no_flow():
+@pytest.mark.parametrize("alternative", [dfs_non_recursive, dfs_non_recursive_no_hashes, bdfs])
+def test_dfs_and_stack_dfs_equivalence_no_flow(alternative):
     random.seed(54)
     for size in range(120):
         print(f"\n{size}", end='')
@@ -266,8 +266,8 @@ def test_dfs_and_stack_dfs_equivalence_no_flow():
             check_equivalence(tree, impl_first=etalon, impl_second=alternative,
                               visitor_maker=lambda: EventLoggingVisitor())
 
-
-def test_dfs_and_stack_dfs_equivalence():
+@pytest.mark.parametrize("alternative", [dfs_non_recursive, dfs_non_recursive_no_hashes, bdfs])
+def test_dfs_and_stack_dfs_equivalence(alternative):
     random.seed(84)
     counter = 0
     for size in range(100):
