@@ -282,6 +282,14 @@ class SerapiInstance(threading.Thread):
         self.use_hammer = use_hammer
         if self.use_hammer:
             self.init_hammer()
+
+    def state_hash(self) -> int:
+        # todo: can optimize, by memorizing, and updating on each change of self.proof_context
+        # will need to change interface though
+        # or make self.proof_context a property with getter and setter
+        return str(hash(str(self.proof_context)))[:4] + str(self.proof_context)
+        # return hash(str(self.proof_context))
+
     @property
     def local_lemmas(self) -> List[str]:
         def generate() -> Iterable[str]:
@@ -473,7 +481,7 @@ class SerapiInstance(threading.Thread):
     # class. Sends a single command to the running serapi
     # instance. Returns nothing: if you want a response, call one of
     # the other methods to get it.
-    def run_stmt(self, stmt : str, timeout : Optional[int]=None, newtip: Optional[int] = None):
+    def run_stmt(self, stmt : str, timeout : Optional[int]=None):
         if timeout:
             old_timeout = self.timeout
             self.timeout = timeout
@@ -500,11 +508,7 @@ class SerapiInstance(threading.Thread):
                 # Get initial context
                 # Send the command
                 assert self.message_queue.empty(), self.messages
-                # if it's last command, and newtip is given, then set it
-                if newtip is not None and i_stm + 1 == len(preprocessed_commands):
-                    self.send_acked("(Add ((newtip {})) \"{}\")\n".format(newtip, stm))
-                else:
-                    self.send_acked("(Add () \"{}\")\n".format(stm))
+                self.send_acked("(Add () \"{}\")\n".format(stm))
                 # Get the response, which indicates what state we put
                 # serapi in.
                 self.update_state()

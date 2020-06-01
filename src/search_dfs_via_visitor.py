@@ -49,19 +49,6 @@ def eprint_cancel(desired_state: int, args: argparse.Namespace, msg: Optional[st
                f"because {msg}.", guard=args.verbose >= 2)
 
 
-def cancel_until_state(coq: serapi_instance.SerapiInstance,
-                       desired_state: int,
-                       args: argparse.Namespace,
-                       msg: Optional[str] = None):
-    frm = coq.cur_state
-    eprint_cancel(desired_state, args, msg)
-    while coq.cur_state != desired_state:
-        if coq.cur_state <= 1:
-            err = f"Attempt to cancel root, while trying to get from {frm} to {desired_state}, because {msg}"
-            raise RuntimeError(err)
-        coq.cancel_last()
-
-
 def delete_duplicate_predictions(predictions_and_certainties: List[Prediction]):
     """
     deletes duplicates, preserves order
@@ -111,7 +98,7 @@ def update_distance_stack(extra_depth, subgoal_distance_stack, subgoals_closed, 
 
 
 class Edge(NamedTuple):
-    frm: int
+    frm_hash: int
     tactic: str
     certainty: float
 
@@ -124,16 +111,15 @@ class CoqGraphNode(NamedTuple):
     subgoals_opened: int
     subgoals_closed: int
     is_proof_completed: bool
-    state_id: int
+    state_hash: int
     vis_node: LabeledNode
-    previous_state_id: Optional[int]
+    previous_state_hash: Optional[int]
 
 
 class CoqGraphInterface(GraphInterface):
     """
     Interface to Coq as a graph
     """
-
     def __init__(self,
                  coq: serapi_instance.SerapiInstance,
                  args: argparse.Namespace,
@@ -144,124 +130,174 @@ class CoqGraphInterface(GraphInterface):
         self._vis_graph = vis_graph
         self._memoized_outgoing_edges: Dict[int, List[Edge]] = {}
         self._memoized_edge_destinations: Dict[int, Optional[CoqGraphNode]] = {}
-        self._state_id_to_node: Dict[int, CoqGraphNode] = {}
+        self._state_hash_to_node: Dict[int, CoqGraphNode] = {}
 
         # todo: figure out correct initialization
-        root_node = CoqGraphNode(coq.proof_context, None, None, completed_proof(coq), coq.cur_state,
+        root_node = CoqGraphNode(coq.proof_context, None, None, completed_proof(coq), coq.state_hash(),
                                  self._vis_graph.start_node, None)
-        self._state_id_to_node[root_node.state_id] = root_node
+        self._state_hash_to_node[root_node.state_hash] = root_node
         self.root = root_node
+        self._stack_of_prev_state_ids: List = [] # top of this stack must always contain what state_id was before last tactic application
 
-    def _ids_on_path_to_root(self, state_id: int) -> List[int]:
+    def undo_tactic(self):
+        if not self._stack_of_prev_state_ids:
+            raise RuntimeError("Attempt to undo root")
+        last_checkpoint_state_id = self._stack_of_prev_state_ids.pop()
+        while self._coq.cur_state != last_checkpoint_state_id:
+            self._coq.cancel_last()
+
+    def _cancel_until_state(self,
+                           desired_state_hash: int,
+                           msg: Optional[str] = None,
+                           ):
+        cur_hash = self._coq.state_hash()
+        frm_hash = self._coq.state_hash()
+        if desired_state_hash == cur_hash:
+            return
+        eprint_cancel(desired_state_hash, self._args, msg)
+        hashes_trace = []  # todo: delete hashes_trace
+        while cur_hash != desired_state_hash:
+            hashes_trace.append(cur_hash)
+            if self._coq.state_hash() == self.root.state_hash:
+                err = f"Attempt to cancel root, while trying to get from \n{frm_hash} \nto \n{desired_state_hash}\n, because {msg}\n"
+                err += "\nHashes trace is:\n"
+                err += str(hashes_trace)
+                err += "\nexpected trace is\n"
+                err += str(reversed(self._commands_and_hashes_from_to(desired_state_hash, frm_hash)))
+                raise RuntimeError(err)
+            self._coq.cancel_last()
+            cur_hash = self._coq.state_hash()
+
+    def _hashes_on_path_to_root(self, state_hash: int) -> List[int]:
         """
-        Returns ids on path to root, in order state_id, ... , root_state_id
+        Returns hashes on path to root, in order state_hash, ... , root_state_hash
         """
-        cur_node = self._state_id_to_node[state_id]
-        path = [cur_node.state_id]
-        while cur_node.previous_state_id is not None:
-            path.append(cur_node.previous_state_id)
-            cur_node = self._state_id_to_node[cur_node.previous_state_id]
+        cur_node = self._state_hash_to_node[state_hash]
+        path = [cur_node.state_hash]
+        while cur_node.previous_state_hash is not None:
+            path.append(cur_node.previous_state_hash)
+            cur_node = self._state_hash_to_node[cur_node.previous_state_hash]
         return path
 
-    def _closest_common_ancestor(self, state_id_first: int, state_id_second: int) -> int:
-        path_first: List[int] = list(reversed(self._ids_on_path_to_root(state_id_first)))
-        path_second: List[int] = list(reversed(self._ids_on_path_to_root(state_id_second)))
+    def _closest_common_ancestor(self, state_hash_first: int, state_hash_second: int) -> int:
+        path_first: List[int] = list(reversed(self._hashes_on_path_to_root(state_hash_first)))
+        path_second: List[int] = list(reversed(self._hashes_on_path_to_root(state_hash_second)))
         for i in range(min(len(path_first), len(path_second))):
             if path_first[i] != path_second[i]:
                 return path_first[i - 1]
         return path_first[min(len(path_first), len(path_second)) - 1]
 
-    def _commands_and_newtips_from_to(self, id_from: int, id_to: int) -> List[Tuple[str, int]]:
+    def _commands_and_hashes_from_to(self, hash_from: int, hash_to: int) -> List[Tuple[str, int]]:
         """
         returns list of commands (from, .. to]
         """
-        reversed_commands_and_tips = []
-        cur_node = self._state_id_to_node[id_to]
-        while cur_node.state_id != id_from:
-            reversed_commands_and_tips.append((cur_node.vis_node.prediction, cur_node.state_id))
-            cur_node = self._state_id_to_node[cur_node.previous_state_id]
-        return list(reversed(reversed_commands_and_tips))
+        reversed_commands_and_hashes = []
+        cur_node = self._state_hash_to_node[hash_to]
+        while cur_node.state_hash != hash_from:
+            reversed_commands_and_hashes.append((cur_node.vis_node.prediction, cur_node.state_hash))
+            cur_node = self._state_hash_to_node[cur_node.previous_state_hash]
+        return list(reversed(reversed_commands_and_hashes))
 
-    def _redo_to_state(self, state_id):
-        cmds_and_newtips = self._commands_and_newtips_from_to(self._coq.cur_state, state_id)
-        for cmd_and_newtip in cmds_and_newtips:
-            cmd, newtip = cmd_and_newtip
-            # print(state_id, repr(cmd), newtip) # todo: remove
-            prev_id = self._state_id_to_node[newtip].previous_state_id
-            prev_labeled_node = self._state_id_to_node[prev_id].vis_node
-            tryPrediction(self._args, self._coq, cmd, prev_labeled_node, newtip)
-            # self._coq.run_stmt(cmd, newtip=newtip)
-            assert self._coq.cur_state == newtip
+    def _redo_to_state(self, state_hash: int):
+        cmds_and_hashes = self._commands_and_hashes_from_to(self._coq.state_hash(), state_hash)
+        for cmd_and_hash in cmds_and_hashes:
+            cmd, expected_new_hash = cmd_and_hash
+            expected_prev_hash = self._state_hash_to_node[expected_new_hash].previous_state_hash
+            prev_labeled_node = self._state_hash_to_node[expected_prev_hash].vis_node
+            actual_prev_hash = self._coq.state_hash()
+            assert actual_prev_hash == expected_prev_hash, f"expected to start from\n{expected_prev_hash}\nbut started from\n{actual_prev_hash}\n"
+            tryPrediction(self._args, self._coq, cmd, prev_labeled_node)
+            actual_new_hash = self._coq.state_hash()
+            assert actual_new_hash == expected_new_hash, f"expected:\n{expected_prev_hash}\n ->\n {cmd}\n->\n{expected_new_hash}\nbut got\n{actual_new_hash}"
 
     def _goto_state_fake(self,
-                         desired_state_id: int,
+                         desired_state_hash: int,
                          msg: Optional[str] = None):  # Todo: make real
-        cancel_until = self._closest_common_ancestor(self._coq.cur_state, desired_state_id)
-        cancel_until_state(self._coq, cancel_until, self._args, msg)
-        self._redo_to_state(desired_state_id)
+        cur_hash = self._coq.state_hash()
+        assert cur_hash in self._state_hash_to_node
+        assert desired_state_hash in self._state_hash_to_node
+        cancel_until = self._closest_common_ancestor(cur_hash, desired_state_hash)
+        assert cancel_until in self._state_hash_to_node
+        assert self.root.state_hash in self._state_hash_to_node
+        self._cancel_until_state(cancel_until, msg)
+        self._redo_to_state(desired_state_hash)
 
     def get_outgoing_edges(self, node: CoqGraphNode) -> List[Edge]:
         """
         Calls neural network to get predictions
         memoizes to self.memoized_outgoing_edges
         """
-        # print(f"Get edges of {node.state_id}")
-        if node.state_id in self._memoized_outgoing_edges:
-            # print(f"Edges recalled ({len(self._memoized_outgoing_edges[node.state_id])})")
-            return self._memoized_outgoing_edges[node.state_id]
-        self._goto_state_fake(node.state_id, "get outgoing edges")
+        # print(f"Get edges of {node.state_hash}")
+        if node.state_hash in self._memoized_outgoing_edges:
+            # print(f"Edges recalled ({len(self._memoized_outgoing_edges[node.state_hash])})")
+            return self._memoized_outgoing_edges[node.state_hash]
+        self._goto_state_fake(node.state_hash, "get outgoing edges")
         predictions, certainties = predict_k_tactics(self._coq, self._args, self._args.max_attempts)
-        edges = [Edge(node.state_id, pred, certainty) for pred, certainty in zip(predictions, certainties)]
-        self._memoized_outgoing_edges[node.state_id] = edges
+        edges = [Edge(node.state_hash, pred, certainty) for pred, certainty in zip(predictions, certainties)]
+        self._memoized_outgoing_edges[node.state_hash] = edges
         return edges
+
+    def run_prediction(self, prediction):
+
+        parent_vis_node = self._state_hash_to_node[edge.frm_hash].vis_node
+        context_after, num_stmts, \
+        subgoals_closed, subgoals_opened, \
+        error, time_taken, new_state = \
+            tryPrediction(self._args, self._coq, prediction, parent_vis_node)
+        return context_after, num_stmts, subgoals_closed, subgoals_opened, error, time_taken, new_state
 
     def edge_destination(self, edge: Edge) -> Optional[CoqGraphNode]:
         """
         Creates new node: sends commands to Coq to get it
         Memoizes to self.memoized_edge_destinations
-        adds new node to self.id2node
+        adds new node to self.hash2node
         adds values in
             self.contexts_after[new_state],
             self.subgoals_opened[new_state],
             self.subgoals_closed[new_state]
         returns None on Coq error
         """
-        if edge in self._memoized_outgoing_edges:
-            return self._memoized_outgoing_edges[edge]
-        if self._coq.cur_state != edge.frm:
-            # print(f"mov {self._coq.cur_state} => {edge.frm} {edge.tactic}", end='')
-            self._goto_state_fake(edge.frm, "goto edge source")
+        if edge in self._memoized_edge_destinations:
+            return self._memoized_edge_destinations[edge]
+        if self._coq.state_hash() != edge.frm_hash:
+            # print(f"mov {self._coq.state_hash()} => {edge.frm_hash} {edge.tactic}", end='')
+            self._goto_state_fake(edge.frm_hash, "goto edge source")
         context_before = self._coq.proof_context
-        parent_vis_node = self._state_id_to_node[edge.frm].vis_node
-        context_after, _, \
-        subgoals_closed, subgoals_opened, \
-        error, time_taken, new_state = \
-            tryPrediction(self._args, self._coq, edge.tactic, parent_vis_node)
+        parent_vis_node = self._state_hash_to_node[edge.frm_hash].vis_node
+        context_after, num_stmts, subgoals_closed, subgoals_opened, error, time_taken, new_state = \
+            self.run_prediction(edge.tactic)
+        new_hash = self._coq.state_hash()
         if error:
-            # print(f"failed {edge.frm} {edge.tactic}")
+            # print(f"failed {edge.frm_hash} {edge.tactic}")
+            self._cancel_until_state(edge.frm_hash, "unwind failed")
             return None
-        # print(f"{edge.frm} -{edge.tactic}-> {new_state}")
+        if new_hash in self._state_hash_to_node:
+            # Deja Vu
+            # cancel statement to aviod DAG
+            self._cancel_until_state(edge.frm_hash, "unwind deja vu")
+            return None
+        # print(f"{edge.frm_hash} -{edge.tactic}-> {new_state}")
         is_proof_completed = completed_proof(self._coq)
         new_vis_node = self._vis_graph.mkNode(edge.tactic, context_before, parent_vis_node)
         new_vis_node.time_taken = time_taken
         new_node = CoqGraphNode(context_after, subgoals_opened, subgoals_closed, is_proof_completed,
-                                new_state, new_vis_node, edge.frm)
-        self._state_id_to_node[new_state] = new_node
-        self._memoized_outgoing_edges[edge] = new_node
-        assert new_state != edge.frm
+                                new_hash, new_vis_node, edge.frm_hash)
+        self._state_hash_to_node[new_hash] = new_node
+        self._memoized_edge_destinations[edge] = new_node
+        # assert new_hash != edge.frm_hash, f"\n{edge.frm_hash}\n->\n{edge.tactic}\n->\n {new_hash}"
         return new_node
 
-    def context_after(self, state_id) -> ProofContext:
-        return self._state_id_to_node[state_id].context_after
+    def context_after(self, state_hash) -> ProofContext:
+        return self._state_hash_to_node[state_hash].context_after
 
-    def subgoals_opened(self, state_id):
-        return self._state_id_to_node[state_id].subgoals_opened
+    def subgoals_opened(self, state_hash):
+        return self._state_hash_to_node[state_hash].subgoals_opened
 
-    def subgoals_closed(self, state_id):
-        return self._state_id_to_node[state_id].subgoals_closed
+    def subgoals_closed(self, state_hash):
+        return self._state_hash_to_node[state_hash].subgoals_closed
 
-    def is_proof_completed(self, state_id):
-        return self._state_id_to_node[state_id].is_proof_completed
+    def is_proof_completed(self, state_hash):
+        return self._state_hash_to_node[state_hash].is_proof_completed
 
 
 class CoqVisitor(BestFirstSearchVisitor):
@@ -282,24 +318,26 @@ class CoqVisitor(BestFirstSearchVisitor):
                  pbar: tqdm,
                  vis_graph: SearchGraph,
                  args: argparse.Namespace,
-                 initial_state_id: int,
+                 initial_state_hash: int,
                  ):
         self._pbar = pbar
         self._num_successful_predictions = defaultdict(int)
         self._vis_graph = vis_graph
         self._args = args
         self._nodes_info: Dict[int, CoqVisitor.NodeInfo] = \
-            {initial_state_id: CoqVisitor.NodeInfo(0, [], [vis_graph.start_node])}
+            {initial_state_hash: CoqVisitor.NodeInfo(extra_depth=0,
+                                                     subgoal_distance_stack=[],
+                                                     path=[vis_graph.start_node])}
         self.has_unexplored_node: bool = False
         self._nodes_score: Dict[int, float] = {}
 
     def on_enter(self, graph: GraphInterface, entered_node) -> TraverseVisitorResult:
-        # print(f"Launched from {entered_node.state_id}")
+        # print(f"Launched from {entered_node.state_hash}")
         return super().on_enter(graph, entered_node)
 
     def on_traveling_edge(self, graph: CoqGraphInterface, frm: CoqGraphNode, edge: Edge) -> TraverseVisitorResult:
         """limit search width"""
-        if self._num_successful_predictions[frm.state_id] >= self._args.search_width:
+        if self._num_successful_predictions[frm.state_hash] >= self._args.search_width:
             return TraverseVisitorResult(stop_discovering_edges=True)
         return TraverseVisitorResult()
 
@@ -319,7 +357,7 @@ class CoqVisitor(BestFirstSearchVisitor):
         """
         if discovered is None:  # coq error
             return TraverseVisitorResult(do_skip=True)
-        self._num_successful_predictions[frm.state_id] += 1
+        self._num_successful_predictions[frm.state_hash] += 1
         self._pbar.update(1)
 
         # Handle stop conitions
@@ -328,14 +366,14 @@ class CoqVisitor(BestFirstSearchVisitor):
         context_after = discovered.context_after
 
         new_distance_stack, new_extra_depth = update_distance_stack(
-            self._nodes_info[frm.state_id].extra_depth,
-            self._nodes_info[frm.state_id].subgoal_distance_stack,
+            self._nodes_info[frm.state_hash].extra_depth,
+            self._nodes_info[frm.state_hash].subgoal_distance_stack,
             subgoals_closed,
             subgoals_opened)
 
         discovered_info = CoqVisitor.NodeInfo(new_extra_depth, new_distance_stack,
-                                              self._nodes_info[frm.state_id].path + [discovered.vis_node])
-        self._nodes_info[discovered.state_id] = discovered_info
+                                              self._nodes_info[frm.state_hash].path + [discovered.vis_node])
+        self._nodes_info[discovered.state_hash] = discovered_info
 
         depth_limit = self._args.search_depth + new_extra_depth
         if discovered.is_proof_completed:
@@ -344,7 +382,7 @@ class CoqVisitor(BestFirstSearchVisitor):
                                          what_return=SubSearchResult(solution, subgoals_closed))
         if contextInPath(context_after, discovered_info.path[1:]):
             if not self._args.count_softfail_predictions:
-                self._num_successful_predictions[frm.state_id] -= 1  # I don't like this +1 -1 logic
+                self._num_successful_predictions[frm.state_hash] -= 1  # I don't like this +1 -1 logic
             self._vis_graph.setNodeColor(discovered.vis_node, "orange")
             eprint_cancel(frm.vis_node.node_id, self._args, "resulting context is in current path")
             return TraverseVisitorResult(do_skip=True)
@@ -391,7 +429,7 @@ class CoqVisitor(BestFirstSearchVisitor):
     def on_exit(self, graph: CoqGraphInterface,
                 node_left: CoqGraphNode, all_children_results, stage, suggested_result) -> TraverseVisitorResult:
         # All predictions made no progress
-        # print(f"Exiting {node_left.state_id} at stage {stage}")
+        # print(f"Exiting {node_left.state_hash} at stage {stage}")
         return TraverseVisitorResult(what_return=SubSearchResult(None, 0), do_return=True)
 
     def _eval_edge(self, tree: CoqGraphInterface, edge: Edge):
@@ -419,7 +457,7 @@ def dfs_proof_search_with_graph_visitor(lemma_statement: str,
                  position=((bar_idx * 2) + 1),
                  dynamic_ncols=True, bar_format=mybarfmt) as pbar:
         # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
-        visitor = CoqVisitor(pbar, g, args, coq.cur_state)
+        visitor = CoqVisitor(pbar, g, args, coq.state_hash())
         graph_interface = CoqGraphInterface(coq, args, g)
         command_list, _ = dfs(graph_interface.root,
                               graph_interface,
@@ -459,7 +497,7 @@ def bfs_proof_search_with_graph_visitor(lemma_statement: str,
                  position=((bar_idx * 2) + 1),
                  dynamic_ncols=True, bar_format=mybarfmt) as pbar:
         # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
-        visitor = CoqVisitor(pbar, g, args, coq.cur_state)
+        visitor = CoqVisitor(pbar, g, args, coq.state_hash())
         graph_interface = CoqGraphInterface(coq, args, g)
         command_list, _ = best_first_search(graph_interface.root,
                                             graph_interface,

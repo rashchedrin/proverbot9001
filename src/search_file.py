@@ -910,14 +910,13 @@ class SearchResult(NamedTuple):
 def tryPrediction(args : argparse.Namespace,
                   coq : serapi_instance.SerapiInstance,
                   prediction : str,
-                  previousNode : LabeledNode,
-                  newtip: Optional[int] = None) -> Tuple[ProofContext, int, int, int, Optional[Exception], float, int]:
+                  previousNode : LabeledNode) -> Tuple[ProofContext, int, int, int, Optional[Exception], float, int]:
     coq.quiet = True
     time_left = max(args.max_proof_time - time_on_path(previousNode), 0)
     start_time = time.time()
     time_per_command = 60 if coq.use_hammer else args.max_tactic_time
     try:
-        coq.run_stmt(prediction, timeout=min(time_left, time_per_command), newtip=newtip)
+        coq.run_stmt(prediction, timeout=min(time_left, time_per_command))
         error = None
     except (serapi_instance.TimeoutError, serapi_instance.ParseError,
             serapi_instance.CoqExn, serapi_instance.OverflowError,
