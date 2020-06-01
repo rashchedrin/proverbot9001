@@ -69,6 +69,7 @@ class Tree(GraphInterface):
     def clear_log(self):
         self._log = []
 
+
 def mk_random_tree(n_nodes, tree_class=Tree):
     tree = tree_class()
     for _ in range(n_nodes):
@@ -121,11 +122,14 @@ class EventLoggingVisitor(TreeTraverseVisitor):
 
 
 def hash_bit(seed: str, divisor=10):
+    """Actually a bad idea, because hash in python is randomized.
+    Use PYTHONHASHSEED=0 environment variable to make it stable"""
     assert isinstance(seed, str)
     return hash(seed) % divisor == 0
 
 
 def hashrandom_visitor_result(seed: str):
+    assert isinstance(seed, str)
     do_return = hash_bit("0|" + seed)
     do_skip = hash_bit("1|" + seed)
     stop_discovering_edges = hash_bit("2|" + seed)
@@ -139,6 +143,7 @@ class LoggingDroppingVisitor(TreeTraverseVisitor):
     """
     Logs all events. Returns hashrandom answer
     """
+
     def __init__(self, do_print: bool = False, seed: str = "deadbeef"):
         self._log = []
         self._print = print if do_print else lambda x: None
@@ -152,23 +157,28 @@ class LoggingDroppingVisitor(TreeTraverseVisitor):
     def on_enter(self, graph: GraphInterface, entered_node) -> TraverseVisitorResult:
         logged = ("on_enter", entered_node)
         self._print(logged)
-        self._log.append(logged)
         super().on_enter(graph, entered_node)
-        return hashrandom_visitor_result(str(self._next_sonce()) +"|on_enter|" + str(self._seed))
+        res = hashrandom_visitor_result(str(self._next_sonce()) + "|on_enter|" + str(self._seed))
+        self._log.append((logged, res))
+        return res
 
     def on_traveling_edge(self, graph: GraphInterface, frm, edge) -> TraverseVisitorResult:
         logged = ("on_traveling_edge", frm, edge)
         self._print(logged)
         self._log.append(logged)
         super().on_traveling_edge(graph, frm, edge)
-        return hashrandom_visitor_result(str(self._next_sonce()) +"|on_traveling_edge|" + str(self._seed))
+        res = hashrandom_visitor_result(str(self._next_sonce()) + "|on_enter|" + str(self._seed))
+        self._log.append((logged, res))
+        return res
 
     def on_discover(self, graph: GraphInterface, frm, discovered) -> TraverseVisitorResult:
         logged = ("on_discover", frm, discovered)
         self._print(logged)
         self._log.append(logged)
         super().on_discover(graph, frm, discovered)
-        return hashrandom_visitor_result(str(self._next_sonce()) +"|on_discover|" + str(self._seed))
+        res = hashrandom_visitor_result(str(self._next_sonce()) + "|on_enter|" + str(self._seed))
+        self._log.append((logged, res))
+        return res
 
     def on_got_result(self, graph: GraphInterface, receiver_node, sender_node, result,
                       siblings_results) -> TraverseVisitorResult:
@@ -177,7 +187,9 @@ class LoggingDroppingVisitor(TreeTraverseVisitor):
         self._print(logged)
         self._log.append(logged)
         super().on_got_result(graph, receiver_node, sender_node, result, siblings_results)
-        return hashrandom_visitor_result(str(self._next_sonce()) +"|on_got_result|" + str(self._seed))
+        res = hashrandom_visitor_result(str(self._next_sonce()) + "|on_enter|" + str(self._seed))
+        self._log.append((logged, res))
+        return res
 
     def on_exit(self, graph: GraphInterface, node_left, all_children_results, stage,
                 suggested_result) -> TraverseVisitorResult:
@@ -186,7 +198,9 @@ class LoggingDroppingVisitor(TreeTraverseVisitor):
         self._print(logged)
         self._log.append(logged)
         super().on_exit(graph, node_left, all_children_results, stage, suggested_result)
-        return hashrandom_visitor_result(str(self._next_sonce()) +"|on_exit|" + str(self._seed))
+        res = hashrandom_visitor_result(str(self._next_sonce()) + "|on_enter|" + str(self._seed))
+        self._log.append((logged, res))
+        return res
 
     def log(self):
         return self._log
@@ -222,22 +236,46 @@ def check_equivalence(tree, impl_first, impl_second,
     assert res_first == res_second
 
 
+class TreeU(Tree):
+
+    def edge_destination(self, edge):
+        return [super().edge_destination(edge)]
+
+    def get_outgoing_edges(self, node) -> List:
+        return super().get_outgoing_edges(node[0])
+
+    def root(self):
+        return [super().root()]
+
 
 etalon = dfs
 
+
+class BestFSLoggingDroppingVisitor(LoggingDroppingVisitor):
+    def edge_picker(self, tree, leaf_edges):
+        pick = random.randint(0, len(leaf_edges) - 1)
+        self._log.append(("pick", pick))
+        return pick
+
+
+def test_bestfs_doesnt_throw():
+    random.seed(78)
+    counter = 0
+    for size in range(100):
+        print(random.randint(1, 100000))
+        print(f"\n{size} ", end='')
+        for attempt in range(100):
+            counter += 1
+            print(counter, end=' ')
+            tree = mk_random_tree(size, TreeU)
+            seed_str = f"({counter})"
+            visitor = BestFSLoggingDroppingVisitor(seed=seed_str)
+            best_first_search(tree.root(), tree, visitor, True)
+
+
+
 @pytest.mark.parametrize("alternative", [dfs_non_recursive_no_hashes, bdfs])
 def test_dfs_no_hashes(alternative):
-    class TreeU(Tree):
-
-        def edge_destination(self, edge):
-            return [super().edge_destination(edge)]
-
-        def get_outgoing_edges(self, node) -> List:
-            return super().get_outgoing_edges(node[0])
-
-        def root(self):
-            return [super().root()]
-
     random.seed(34)
     counter = 0
     for size in range(100):
@@ -255,6 +293,7 @@ def test_dfs_no_hashes(alternative):
             check_equivalence(tree, impl_first=etalon, impl_second=alternative,
                               visitor_maker=visitor_maker)
 
+
 @pytest.mark.parametrize("alternative", [dfs_non_recursive, dfs_non_recursive_no_hashes, bdfs])
 def test_dfs_and_stack_dfs_equivalence_no_flow(alternative):
     random.seed(54)
@@ -265,6 +304,7 @@ def test_dfs_and_stack_dfs_equivalence_no_flow(alternative):
             tree = mk_random_tree(size)
             check_equivalence(tree, impl_first=etalon, impl_second=alternative,
                               visitor_maker=lambda: EventLoggingVisitor())
+
 
 @pytest.mark.parametrize("alternative", [dfs_non_recursive, dfs_non_recursive_no_hashes, bdfs])
 def test_dfs_and_stack_dfs_equivalence(alternative):
@@ -278,10 +318,9 @@ def test_dfs_and_stack_dfs_equivalence(alternative):
             print(counter, end=' ')
             tree = mk_random_tree(size)
             seed_str = f"({counter})"
+
             def visitor_maker():
                 return LoggingDroppingVisitor(seed=seed_str)
+
             check_equivalence(tree, impl_first=etalon, impl_second=alternative,
                               visitor_maker=visitor_maker)
-
-
-

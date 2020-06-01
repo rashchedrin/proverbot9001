@@ -57,8 +57,8 @@ class BestFirstSearchVisitor(TreeTraverseVisitor):
     You must override leaf_picker!
     see also TreeTraverseVisitor for such events as on_enter, on_exit, etc.
     """
-    def leaf_picker(self, tree, leaves) -> int:
+    def edge_picker(self, tree:GraphInterface, leaf_edges: List[Any]) -> int:
         """
-        Must pick which leaf will be expanded, and return its position in leafs array
+        Must pick which leaf edge will be traveled, and return its position in leaf_edges array
         """
         raise NotImplementedError

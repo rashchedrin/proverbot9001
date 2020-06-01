@@ -186,7 +186,11 @@ class CoqGraphInterface(GraphInterface):
         cmds_and_newtips = self._commands_and_newtips_from_to(self._coq.cur_state, state_id)
         for cmd_and_newtip in cmds_and_newtips:
             cmd, newtip = cmd_and_newtip
-            self._coq.run_stmt(cmd, newtip=newtip)
+            # print(state_id, repr(cmd), newtip) # todo: remove
+            prev_id = self._state_id_to_node[newtip].previous_state_id
+            prev_labeled_node = self._state_id_to_node[prev_id].vis_node
+            tryPrediction(self._args, self._coq, cmd, prev_labeled_node, newtip)
+            # self._coq.run_stmt(cmd, newtip=newtip)
             assert self._coq.cur_state == newtip
 
     def _goto_state_fake(self,
@@ -390,15 +394,11 @@ class CoqVisitor(BestFirstSearchVisitor):
         # print(f"Exiting {node_left.state_id} at stage {stage}")
         return TraverseVisitorResult(what_return=SubSearchResult(None, 0), do_return=True)
 
-    def _eval_node(self, tree: CoqGraphInterface, node: CoqGraphNode):
-        if node.state_id not in self._nodes_score:
-            outgoing_edges: List[Edge] = tree.get_outgoing_edges(node)
-            max_certainty: float = max(outgoing_edges, key=lambda e: e.certainty).certainty
-            self._nodes_score[node.state_id] = max_certainty
-        return self._nodes_score[node.state_id]
+    def _eval_edge(self, tree: CoqGraphInterface, edge: Edge):
+        return edge.certainty
 
-    def leaf_picker(self, tree, leaves) -> int:
-        return max(range(len(leaves)), key=lambda i: self._eval_node(tree, leaves[i]))
+    def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
+        return max(range(len(leaf_edges)), key=lambda i: self._eval_edge(tree, leaf_edges[i]))
 
 
 def dfs_proof_search_with_graph_visitor(lemma_statement: str,
@@ -462,8 +462,8 @@ def bfs_proof_search_with_graph_visitor(lemma_statement: str,
         visitor = CoqVisitor(pbar, g, args, coq.cur_state)
         graph_interface = CoqGraphInterface(coq, args, g)
         command_list, _ = best_first_search(graph_interface.root,
-                              graph_interface,
-                              visitor)
+                                            graph_interface,
+                                            visitor)
         pbar.clear()
     module_prefix = escape_lemma_name(module_name)
 
