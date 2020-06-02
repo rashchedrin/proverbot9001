@@ -152,7 +152,6 @@ class CoqGraphInterface(GraphInterface):
         self.root = root_node
         # top of this stack must always contain what state_id was before last tactic application, and last tactic application
         self._stack_of_prev_state_ids_and_tactics: List[_HistoryElem] = []
-        self._seen_states = {coq.state_hash()}
 
     def undo_tactic(self):
         if not self._stack_of_prev_state_ids_and_tactics:
@@ -226,12 +225,6 @@ class CoqGraphInterface(GraphInterface):
             # print(f"failed {edge.frm_hash} {edge.tactic}")
             self.undo_tactic()
             return None
-        if new_hash in self._seen_states:
-            # Deja Vu
-            # cancel statement to aviod DAG
-            self.undo_tactic()
-            return None
-        self._seen_states.add(new_hash)
         # print(f"{edge.frm_hash} -{edge.tactic}-> {new_state}")
         is_proof_completed = completed_proof(self._coq)
         new_vis_node = self._vis_graph.mkNode(edge.tactic, context_before, parent_vis_node)
@@ -286,9 +279,11 @@ class CoqVisitor(BestFirstSearchVisitor):
                                                        path=[vis_graph.start_node])}
         self.has_unexplored_node: bool = False
         self._nodes_score: Dict[int, float] = {}
+        self._seen_contexts = set()
 
-    def on_enter(self, graph: GraphInterface, entered_node) -> TraverseVisitorResult:
+    def on_enter(self, graph: CoqGraphInterface, entered_node: CoqGraphNode) -> TraverseVisitorResult:
         # print(f"Launched from {entered_node.tactic_trace}")
+        self._seen_contexts.add(str(entered_node.context_after))
         return super().on_enter(graph, entered_node)
 
     def on_traveling_edge(self, graph: CoqGraphInterface, frm: CoqGraphNode, edge: Edge) -> TraverseVisitorResult:
@@ -341,6 +336,12 @@ class CoqVisitor(BestFirstSearchVisitor):
                 self._num_successful_predictions[frm.tactic_trace] -= 1  # I don't like this +1 -1 logic
             self._vis_graph.setNodeColor(discovered.vis_node, "orange")
             eprint_cancel(frm.vis_node.node_id, self._args, "resulting context is in current path")
+            return TraverseVisitorResult(do_skip=True)
+        if str(context_after) in self._seen_contexts:
+            if not self._args.count_softfail_predictions:
+                self._num_successful_predictions[frm.tactic_trace] -= 1  # I don't like this +1 -1 logic
+            self._vis_graph.setNodeColor(discovered.vis_node, "yellow")
+            eprint_cancel(frm.vis_node.node_id, self._args, "resulting context is already seen")
             return TraverseVisitorResult(do_skip=True)
         if contextIsBig(context_after):
             self._vis_graph.setNodeColor(discovered.vis_node, "orange4")
@@ -435,11 +436,11 @@ def dfs_proof_search_with_graph_visitor(lemma_statement: str,
     return SearchResult(SearchStatus.FAILURE, None)
 
 
-def bfs_proof_search_with_graph_visitor(lemma_statement: str,
-                                        module_name: Optional[str],
-                                        coq: serapi_instance.SerapiInstance,
-                                        args: argparse.Namespace,
-                                        bar_idx: int) -> SearchResult:
+def bestfs_proof_search_with_graph_visitor(lemma_statement: str,
+                                           module_name: Optional[str],
+                                           coq: serapi_instance.SerapiInstance,
+                                           args: argparse.Namespace,
+                                           bar_idx: int) -> SearchResult:
     lemma_name = serapi_instance.lemma_name_from_statement(lemma_statement)
     g = SearchGraph(lemma_name)
 
