@@ -998,7 +998,7 @@ def attempt_search(args : argparse.Namespace,
                    coq : serapi_instance.SerapiInstance,
                    bar_idx : int) \
     -> SearchResult:
-    result = dfs_proof_search_with_graph_visitor(lemma_statement, module_name, coq, args, bar_idx)
+    result = bestfs_proof_search_with_graph_visitor(lemma_statement, module_name, coq, args, bar_idx)
     return result
 
 # This implementation is here for reference/documentation
