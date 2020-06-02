@@ -737,7 +737,6 @@ def best_first_search(initial_node: Any,
                       tree: GraphInterface,
                       visitor: BestFirstSearchVisitor,
                       debug=False):
-    # todo: test
     """
     Nodes can be:
         Opened: we've visited it, and called visitor.on_enter
