@@ -337,7 +337,7 @@ class CoqVisitor(BestFirstSearchVisitor):
             self._vis_graph.setNodeColor(discovered.vis_node, "orange")
             eprint_cancel(frm.vis_node.node_id, self._args, "resulting context is in current path")
             return TraverseVisitorResult(do_skip=True)
-        if str(context_after) in self._seen_contexts:
+        if self._args.skip_visited and str(context_after) in self._seen_contexts:
             if not self._args.count_softfail_predictions:
                 self._num_successful_predictions[frm.tactic_trace] -= 1  # I don't like this +1 -1 logic
             self._vis_graph.setNodeColor(discovered.vis_node, "yellow")

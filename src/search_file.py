@@ -250,8 +250,10 @@ def parse_arguments(args_list: List[str]) -> Tuple[argparse.Namespace,
     parser.add_argument("--command-limit", type=int, default=None)
     parser.add_argument("--proof", default=None)
     parser.add_argument("--log-anomalies", type=Path2, default=None)
-    parser.add_argument('--traverse-method', choices=["BestFS", "DFS"],
+    parser.add_argument('--traverse-method', choices=["BestFS", "DFS", "BFS"],
                         default="BestFS", dest='traverse_method')
+    parser.add_argument('--dont-skip-visited', dest='skip_visited', action='store_false')
+    parser.set_defaults(skip_visited=True)
     known_args, unknown_args = parser.parse_known_args(args_list)
     return known_args, parser
 
