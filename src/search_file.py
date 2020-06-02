@@ -250,6 +250,8 @@ def parse_arguments(args_list: List[str]) -> Tuple[argparse.Namespace,
     parser.add_argument("--command-limit", type=int, default=None)
     parser.add_argument("--proof", default=None)
     parser.add_argument("--log-anomalies", type=Path2, default=None)
+    parser.add_argument('--traverse-method', choices=["BestFS", "DFS"],
+                        default="BestFS", dest='traverse_method')
     known_args, unknown_args = parser.parse_known_args(args_list)
     return known_args, parser
 
@@ -988,9 +990,8 @@ class TqdmSpy(tqdm):
         self.n = self.n + value
         super().update(value);
 
-from search_dfs import dfs_proof_search_with_graph_refactored
-from search_dfs_via_visitor import dfs_proof_search_with_graph_visitor, bestfs_proof_search_with_graph_visitor
-from search_dfs import dfs_proof_search_with_graph
+from search_dfs_via_visitor import proof_search_with_graph_visitor
+from tree_traverses import best_first_search, dfs, bfs
 
 def attempt_search(args : argparse.Namespace,
                    lemma_statement : str,
@@ -998,7 +999,16 @@ def attempt_search(args : argparse.Namespace,
                    coq : serapi_instance.SerapiInstance,
                    bar_idx : int) \
     -> SearchResult:
-    result = bestfs_proof_search_with_graph_visitor(lemma_statement, module_name, coq, args, bar_idx)
+    if args.traverse_method == "DFS":
+        traverse_function = dfs
+    elif args.traverse_method == "BestFS":
+        traverse_function = best_first_search
+    elif args.traverse_method == "BFS":
+        traverse_function = bfs
+    else:
+        raise NotImplementedError(f"Unknown traverse method {args.traverse_method}")
+    result = proof_search_with_graph_visitor(lemma_statement, module_name, coq, args, bar_idx,
+                                             traverse_function=traverse_function)
     return result
 
 # This implementation is here for reference/documentation

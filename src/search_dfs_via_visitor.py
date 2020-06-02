@@ -396,11 +396,12 @@ class CoqVisitor(BestFirstSearchVisitor):
         return max(range(len(leaf_edges)), key=lambda i: self._eval_edge(tree, leaf_edges[i]))
 
 
-def dfs_proof_search_with_graph_visitor(lemma_statement: str,
-                                        module_name: Optional[str],
-                                        coq: serapi_instance.SerapiInstance,
-                                        args: argparse.Namespace,
-                                        bar_idx: int) -> SearchResult:
+def proof_search_with_graph_visitor(lemma_statement: str,
+                                    module_name: Optional[str],
+                                    coq: serapi_instance.SerapiInstance,
+                                    args: argparse.Namespace,
+                                    bar_idx: int,
+                                    traverse_function=best_first_search) -> SearchResult:
     lemma_name = serapi_instance.lemma_name_from_statement(lemma_statement)
     g = SearchGraph(lemma_name)
 
@@ -416,47 +417,7 @@ def dfs_proof_search_with_graph_visitor(lemma_statement: str,
         # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
         visitor = CoqVisitor(pbar, g, args, tuple())
         graph_interface = CoqGraphInterface(coq, args, g)
-        command_list, _ = dfs(graph_interface.root,
-                              graph_interface,
-                              visitor)
-        pbar.clear()
-    module_prefix = escape_lemma_name(module_name)
-
-    if lemma_name == "":
-        search_file.unnamed_goal_number += 1
-        g.draw(f"{args.output_dir}/{module_prefix}{lemma_name}"
-               f"{search_file.unnamed_goal_number}.svg")
-    else:
-        g.draw(f"{args.output_dir}/{module_prefix}{lemma_name}.svg")
-
-    if command_list:
-        return SearchResult(SearchStatus.SUCCESS, command_list)
-    if visitor.has_unexplored_node:
-        return SearchResult(SearchStatus.INCOMPLETE, None)
-    return SearchResult(SearchStatus.FAILURE, None)
-
-
-def bestfs_proof_search_with_graph_visitor(lemma_statement: str,
-                                           module_name: Optional[str],
-                                           coq: serapi_instance.SerapiInstance,
-                                           args: argparse.Namespace,
-                                           bar_idx: int) -> SearchResult:
-    lemma_name = serapi_instance.lemma_name_from_statement(lemma_statement)
-    g = SearchGraph(lemma_name)
-
-    # Run search, and draw some interface
-    total_nodes = numNodesInTree(args.search_width,
-                                 args.search_depth + 2) - 1
-
-    with TqdmSpy(total=total_nodes, unit="pred", file=sys.stdout,
-                 desc="Proof", disable=(not args.progress),
-                 leave=False,
-                 position=((bar_idx * 2) + 1),
-                 dynamic_ncols=True, bar_format=mybarfmt) as pbar:
-        # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
-        visitor = CoqVisitor(pbar, g, args, tuple())
-        graph_interface = CoqGraphInterface(coq, args, g)
-        command_list, _ = best_first_search(graph_interface.root,
+        command_list, _ = traverse_function(graph_interface.root,
                                             graph_interface,
                                             visitor)
         pbar.clear()
