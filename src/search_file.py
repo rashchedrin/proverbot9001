@@ -49,6 +49,7 @@ from enum import Enum, auto
 from tqdm import tqdm
 from yattag import Doc
 from pathlib_revised import Path2
+import logger
 
 Tag = Callable[..., Doc.Tag]
 Text = Callable[..., None]
@@ -182,7 +183,6 @@ def main(arg_list: List[str], bar_idx: int) -> None:
         if not destpath.exists():
             srcpath = base.parent / 'reports' / filename
             srcpath.copyfile(destpath)
-
     search_file(args, coqargs, includes, predictor, bar_idx)
 
 
@@ -250,7 +250,7 @@ def parse_arguments(args_list: List[str]) -> Tuple[argparse.Namespace,
     parser.add_argument("--command-limit", type=int, default=None)
     parser.add_argument("--proof", default=None)
     parser.add_argument("--log-anomalies", type=Path2, default=None)
-    parser.add_argument('--traverse-method', choices=["BestFS", "DFS", "BFS"],
+    parser.add_argument('--traverse-method', choices=["BestFS", "DFS", "OldDFS", "BFS"],
                         default="BestFS", dest='traverse_method')
     parser.add_argument('--dont-skip-visited', dest='skip_visited', action='store_false')
     parser.set_defaults(skip_visited=True)
@@ -909,12 +909,22 @@ class SearchResult(NamedTuple):
     status : SearchStatus
     commands : Optional[List[TacticInteraction]]
 
+def metrics_from_search_result(result:SearchResult) -> Dict:
+    answer_status = str(result.status).split('.')[1]
+    proof = "\n".join([cmd.tactic for cmd in result.commands]) if result.commands else "No proof"
+    proof_len = len(result.commands) if result.commands else 0
+    return {
+        "answer_status": answer_status,
+        "proof": proof,
+        "proof_len": proof_len,
+    }
+
 # This method attempts to complete proofs using search.
 
 def tryPrediction(args : argparse.Namespace,
                   coq : serapi_instance.SerapiInstance,
                   prediction : str,
-                  previousNode : LabeledNode) -> Tuple[ProofContext, int, int, int, Optional[Exception], float, int]:
+                  previousNode : LabeledNode) -> Tuple[ProofContext, int, int, int, Optional[Exception], float]:
     coq.quiet = True
     time_left = max(args.max_proof_time - time_on_path(previousNode), 0)
     start_time = time.time()
@@ -925,7 +935,7 @@ def tryPrediction(args : argparse.Namespace,
     except (serapi_instance.TimeoutError, serapi_instance.ParseError,
             serapi_instance.CoqExn, serapi_instance.OverflowError,
             serapi_instance.UnrecognizedError) as e:
-        return coq.proof_context, 0, 0, 0, e, time.time() - start_time, coq.cur_state
+        return coq.proof_context, 0, 0, 0, e, time.time() - start_time
 
     time_taken = time.time() - start_time
     num_stmts = 1
@@ -947,7 +957,7 @@ def tryPrediction(args : argparse.Namespace,
         subgoals_opened = 0
     context_after = coq.proof_context
     assert context_after
-    return context_after, num_stmts, subgoals_closed, subgoals_opened, error, time_taken, coq.cur_state
+    return context_after, num_stmts, subgoals_closed, subgoals_opened, error, time_taken
 
 def completed_proof(coq : serapi_instance.SerapiInstance) -> bool:
     if coq.proof_context:
@@ -993,7 +1003,145 @@ class TqdmSpy(tqdm):
         super().update(value);
 
 from search_dfs_via_visitor import proof_search_with_graph_visitor
+# from search_dfs import dfs_proof_search_with_graph
 from tree_traverses import best_first_search, dfs, bfs
+
+def old_dfs_proof_search_with_graph(lemma_statement : str,
+                                module_name : Optional[str],
+                                coq : serapi_instance.SerapiInstance,
+                                args : argparse.Namespace,
+                                bar_idx : int) \
+                                -> SearchResult:
+    global unnamed_goal_number
+    lemma_name = serapi_instance.lemma_name_from_statement(lemma_statement)
+    g = SearchGraph(lemma_name)
+    def cleanupSearch(num_stmts : int, msg : Optional[str] = None):
+        if msg:
+            eprint(f"Cancelling {num_stmts} statements "
+                   f"because {msg}.", guard=args.verbose >= 2)
+        for _ in range(num_stmts):
+            coq.cancel_last()
+    hasUnexploredNode = False
+    def search(pbar : tqdm, current_path : List[LabeledNode],
+               subgoal_distance_stack : List[int],
+               extra_depth : int) -> SubSearchResult:
+        nonlocal hasUnexploredNode
+        if args.relevant_lemmas == "local":
+            relevant_lemmas = coq.local_lemmas[:-1]
+        elif args.relevant_lemmas == "hammer":
+            relevant_lemmas = coq.get_hammer_premises()
+        elif args.relevant_lemmas == "searchabout":
+            relevant_lemmas = coq.get_lemmas_about_head()
+        else:
+            assert False, args.relevant_lemmas
+        tactic_context_before = TacticContext(relevant_lemmas,
+                                              coq.prev_tactics,
+                                              coq.hypotheses,
+                                              coq.goals)
+        predictions = [prediction.prediction for prediction in
+                       predictor.predictKTactics(tactic_context_before, args.max_attempts)]
+        proof_context_before = coq.proof_context
+        if coq.use_hammer:
+            predictions = [prediction + "; try hammer." for prediction in predictions]
+        num_successful_predictions = 0
+        for prediction_idx, prediction in enumerate(predictions):
+            if num_successful_predictions >= args.search_width:
+                break
+            try:
+                context_after, num_stmts, \
+                    subgoals_closed, subgoals_opened, \
+                    error, time_taken = \
+                    tryPrediction(args, coq, prediction, current_path[-1])
+                if error:
+                    if args.count_failing_predictions:
+                        num_successful_predictions += 1
+                    continue
+                num_successful_predictions += 1
+                pbar.update(1)
+                assert pbar.n > 0
+
+                predictionNode = g.mkNode(prediction, proof_context_before,
+                                          current_path[-1])
+                predictionNode.time_taken = time_taken
+
+                #### 1.
+                if subgoal_distance_stack:
+                    new_distance_stack = (subgoal_distance_stack[:-1] +
+                                          [subgoal_distance_stack[-1]+1])
+                else:
+                    new_distance_stack = []
+
+                #### 2.
+                new_extra_depth = extra_depth
+                for _ in range(subgoals_closed):
+                    closed_goal_distance = new_distance_stack.pop()
+                    new_extra_depth += closed_goal_distance
+
+                #### 3.
+                new_distance_stack += [0] * subgoals_opened
+
+                #############
+                if completed_proof(coq):
+                    solution = g.mkQED(predictionNode)
+                    return SubSearchResult(solution, subgoals_closed)
+                elif contextInPath(context_after, current_path[1:] + [predictionNode]):
+                    if not args.count_softfail_predictions:
+                        num_successful_predictions -= 1
+                    g.setNodeColor(predictionNode, "orange")
+                    cleanupSearch(num_stmts, "resulting context is in current path")
+                elif contextIsBig(context_after):
+                    g.setNodeColor(predictionNode, "orange4")
+                    cleanupSearch(num_stmts, "resulting context has too big a goal")
+                elif len(current_path) < args.search_depth + new_extra_depth:
+                    sub_search_result = search(pbar, current_path + [predictionNode],
+                                               new_distance_stack, new_extra_depth)
+                    cleanupSearch(num_stmts, "we finished subsearch")
+                    if sub_search_result.solution or \
+                       sub_search_result.solved_subgoals > subgoals_opened:
+                        new_subgoals_closed = \
+                            subgoals_closed + \
+                            sub_search_result.solved_subgoals - \
+                            subgoals_opened
+                        return SubSearchResult(sub_search_result.solution,
+                                               new_subgoals_closed)
+                    if subgoals_closed > 0:
+                        return SubSearchResult(None, subgoals_closed)
+                else:
+                    hasUnexploredNode = True
+                    cleanupSearch(num_stmts, "we hit the depth limit")
+                    if subgoals_closed > 0:
+                        depth = (args.search_depth + new_extra_depth + 1) \
+                            - len(current_path)
+                        return SubSearchResult(None, subgoals_closed)
+            except (serapi_instance.CoqExn, serapi_instance.TimeoutError,
+                    serapi_instance.OverflowError, serapi_instance.ParseError,
+                    serapi_instance.UnrecognizedError):
+                continue
+            except serapi_instance.NoSuchGoalError:
+                raise
+        return SubSearchResult(None, 0)
+    total_nodes = numNodesInTree(args.search_width,
+                                 args.search_depth + 2) - 1
+    with TqdmSpy(total=total_nodes, unit="pred", file=sys.stdout,
+                 desc="Proof", disable=(not args.progress),
+                 leave=False,
+                 position=((bar_idx*2)+1),
+                 dynamic_ncols=True, bar_format=mybarfmt) as pbar:
+        command_list, _ = search(pbar, [g.start_node], [], 0)
+        pbar.clear()
+    module_prefix = escape_lemma_name(module_name)
+    if lemma_name == "":
+        unnamed_goal_number += 1
+        g.draw(f"{args.output_dir}/{module_prefix}{lemma_name}"
+               f"{unnamed_goal_number}.svg")
+    else:
+        g.draw(f"{args.output_dir}/{module_prefix}{lemma_name}.svg")
+    if command_list:
+        return SearchResult(SearchStatus.SUCCESS, command_list)
+    elif hasUnexploredNode:
+        return SearchResult(SearchStatus.INCOMPLETE, None)
+    else:
+        return SearchResult(SearchStatus.FAILURE, None)
 
 def attempt_search(args : argparse.Namespace,
                    lemma_statement : str,
@@ -1001,6 +1149,15 @@ def attempt_search(args : argparse.Namespace,
                    coq : serapi_instance.SerapiInstance,
                    bar_idx : int) \
     -> SearchResult:
+    lemma_name = serapi_instance.lemma_name_from_statement(lemma_statement)
+    logger.set_experiment_as_lemma(module_name, lemma_name, args)
+    if args.traverse_method == "OldDFS":
+        start = time.time()
+        result = old_dfs_proof_search_with_graph(lemma_statement, module_name, coq, args, bar_idx)
+        time_spent = time.time() - start
+        logger.log_metric("time_spent", time_spent)
+        logger.log_metrics(metrics_from_search_result(result))
+        return result
     if args.traverse_method == "DFS":
         traverse_function = dfs
     elif args.traverse_method == "BestFS":
@@ -1009,8 +1166,9 @@ def attempt_search(args : argparse.Namespace,
         traverse_function = bfs
     else:
         raise NotImplementedError(f"Unknown traverse method {args.traverse_method}")
-    result = proof_search_with_graph_visitor(lemma_statement, module_name, coq, args, bar_idx,
+    result, metrics = proof_search_with_graph_visitor(lemma_statement, module_name, coq, args, bar_idx,
                                              traverse_function=traverse_function)
+    logger.log_metrics(metrics)
     return result
 
 # This implementation is here for reference/documentation
@@ -1063,10 +1221,6 @@ def time_on_path(node : LabeledNode) -> float:
         return node.time_taken
     else:
         return time_on_path(node.previous) + node.time_taken
-
-
-
-
 
 
 if __name__ == "__main__":

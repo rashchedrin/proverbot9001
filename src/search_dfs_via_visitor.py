@@ -3,6 +3,7 @@ DFS search strategy for Proverbot9001
 """
 import argparse
 import sys
+import time
 from typing import (List, Optional, Dict, Any, Set, Tuple, NamedTuple)
 from dataclasses import dataclass
 from collections import defaultdict
@@ -20,6 +21,7 @@ from tree_traverses import dfs_non_recursive_no_hashes, bfs, dfs, best_first_sea
     TreeTraverseVisitor, BestFirstSearchVisitor, GraphInterface, \
     TraverseVisitorResult
 from models.tactic_predictor import Prediction
+import logger
 
 
 def get_relevant_lemmas(args, coq):
@@ -30,17 +32,6 @@ def get_relevant_lemmas(args, coq):
     if args.relevant_lemmas == "searchabout":
         return coq.get_lemmas_about_head()
     raise RuntimeError(f"Unsupported relevant_lemmas type {args.relevant_lemmas}")
-
-
-def cancel_last_statements(coq: serapi_instance.SerapiInstance,
-                           num_stmts: int,
-                           args: argparse.Namespace,
-                           msg: Optional[str] = None):
-    if msg:
-        eprint(f"Cancelling {num_stmts} statements "
-               f"because {msg}.", guard=args.verbose >= 2)
-    for _ in range(num_stmts):
-        coq.cancel_last()
 
 
 def eprint_cancel(desired_state: int, args: argparse.Namespace, msg: Optional[str]):
@@ -62,8 +53,8 @@ def delete_duplicate_predictions(predictions_and_certainties: List[Prediction]):
             if not (x.prediction in seen or seen_add(x.prediction))]
 
 
-def predict_k_tactics(coq: serapi_instance.SerapiInstance, args: argparse.Namespace, k: int) -> Tuple[
-    List, List[float]]:
+def predict_k_tactics(coq: serapi_instance.SerapiInstance, args: argparse.Namespace, k: int
+                      ) -> Tuple[List, List[float]]:
     relevant_lemmas = get_relevant_lemmas(args, coq)
     tactic_context_before = TacticContext(relevant_lemmas, coq.prev_tactics, coq.hypotheses, coq.goals)
     predictions_and_certainties = \
@@ -152,6 +143,9 @@ class CoqGraphInterface(GraphInterface):
         self.root = root_node
         # top of this stack must always contain what state_id was before last tactic application, and last tactic application
         self._stack_of_prev_state_ids_and_tactics: List[_HistoryElem] = []
+        self.time_spent_in_predictor: float = 0.0
+        self.time_spent_in_coq: float = 0.0
+        self.time_spent_in_branch_switching: float = 0.0
 
     def undo_tactic(self):
         if not self._stack_of_prev_state_ids_and_tactics:
@@ -166,22 +160,28 @@ class CoqGraphInterface(GraphInterface):
         cur_trace = self.tactic_trace()
         n_common = _common_prefix_len(cur_trace, desired_tactic_trace)
         n_undos = len(cur_trace) - n_common
+        start = time.time()
         for _ in range(n_undos):
             self.undo_tactic()
         for tactic in desired_tactic_trace[n_common:]:
             self.run_prediction(tactic)
+        spent = time.time() - start
+        self.time_spent_in_branch_switching += spent
 
     def get_outgoing_edges(self, node: CoqGraphNode) -> List[Edge]:
         """
         Calls neural network to get predictions
         memoizes to self.memoized_outgoing_edges
         """
-        # print(f"Get edges of {node.tactic_trace}")
+        # Actually, this memoisation is never used.
         if node.tactic_trace in self._memoized_outgoing_edges:
             # print(f"Edges recalled ({len(self._memoized_outgoing_edges[node.tactic_trace])})")
             return self._memoized_outgoing_edges[node.tactic_trace]
         self._goto_state_fake(node.tactic_trace, "get outgoing edges")
+        pred_start = time.time()
         predictions, certainties = predict_k_tactics(self._coq, self._args, self._args.max_attempts)
+        pred_spent = time.time() - pred_start
+        self.time_spent_in_predictor += pred_spent
         edges = [Edge(node.tactic_trace, pred, certainty) for pred, certainty in zip(predictions, certainties)]
         self._memoized_outgoing_edges[node.tactic_trace] = edges
         return edges
@@ -193,11 +193,14 @@ class CoqGraphInterface(GraphInterface):
         parent_vis_node = self._tactic_trace_to_node[self.tactic_trace()[:-1]].vis_node
         state_before_application = self._coq.cur_state
         self._stack_of_prev_state_ids_and_tactics.append(_HistoryElem(state_before_application, prediction))
+        coq_start = time.time()
         context_after, num_stmts, \
         subgoals_closed, subgoals_opened, \
-        error, time_taken, new_state = \
+        error, time_taken = \
             tryPrediction(self._args, self._coq, prediction, parent_vis_node)
-        return context_after, num_stmts, subgoals_closed, subgoals_opened, error, time_taken, new_state
+        coq_spent = time.time() - coq_start
+        self.time_spent_in_coq += coq_spent
+        return context_after, num_stmts, subgoals_closed, subgoals_opened, error, time_taken
 
     def edge_destination(self, edge: Edge) -> Optional[CoqGraphNode]:
         """
@@ -210,6 +213,7 @@ class CoqGraphInterface(GraphInterface):
             self.subgoals_closed[new_state]
         returns None on Coq error
         """
+        # Actually, this memoisation is also never used.
         if edge in self._memoized_edge_destinations:
             return self._memoized_edge_destinations[edge]
         if self.tactic_trace() != edge.frm_tactic_trace:
@@ -217,10 +221,9 @@ class CoqGraphInterface(GraphInterface):
             self._goto_state_fake(edge.frm_tactic_trace, "goto edge source")
         context_before = self._coq.proof_context
         parent_vis_node = self._tactic_trace_to_node[edge.frm_tactic_trace].vis_node
-        context_after, _, subgoals_closed, subgoals_opened, error, time_taken, _ = \
+        context_after, _, subgoals_closed, subgoals_opened, error, time_taken = \
             self.run_prediction(edge.tactic)
         new_trace = self.tactic_trace()
-        new_hash = self._coq.state_hash()
         if error:
             # print(f"failed {edge.frm_hash} {edge.tactic}")
             self.undo_tactic()
@@ -280,10 +283,12 @@ class CoqVisitor(BestFirstSearchVisitor):
         self.has_unexplored_node: bool = False
         self._nodes_score: Dict[int, float] = {}
         self._seen_contexts = set()
+        self.total_nodes_visited = 0
 
     def on_enter(self, graph: CoqGraphInterface, entered_node: CoqGraphNode) -> TraverseVisitorResult:
         # print(f"Launched from {entered_node.tactic_trace}")
         self._seen_contexts.add(str(entered_node.context_after))
+        self.total_nodes_visited += 1
         return super().on_enter(graph, entered_node)
 
     def on_traveling_edge(self, graph: CoqGraphInterface, frm: CoqGraphNode, edge: Edge) -> TraverseVisitorResult:
@@ -396,12 +401,20 @@ class CoqVisitor(BestFirstSearchVisitor):
         return max(range(len(leaf_edges)), key=lambda i: self._eval_edge(tree, leaf_edges[i]))
 
 
+def interpret_traverse_output(command_list: Optional[List], has_unexplored_node: bool) -> SearchResult:
+    if command_list:
+        return SearchResult(SearchStatus.SUCCESS, command_list)
+    if has_unexplored_node:
+        return SearchResult(SearchStatus.INCOMPLETE, None)
+    return SearchResult(SearchStatus.FAILURE, None)
+
+
 def proof_search_with_graph_visitor(lemma_statement: str,
                                     module_name: Optional[str],
                                     coq: serapi_instance.SerapiInstance,
                                     args: argparse.Namespace,
                                     bar_idx: int,
-                                    traverse_function=best_first_search) -> SearchResult:
+                                    traverse_function=best_first_search) -> Tuple[SearchResult, Dict]:
     lemma_name = serapi_instance.lemma_name_from_statement(lemma_statement)
     g = SearchGraph(lemma_name)
 
@@ -417,21 +430,55 @@ def proof_search_with_graph_visitor(lemma_statement: str,
         # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
         visitor = CoqVisitor(pbar, g, args, tuple())
         graph_interface = CoqGraphInterface(coq, args, g)
+        start_time = time.time()
         command_list, _ = traverse_function(graph_interface.root,
                                             graph_interface,
                                             visitor)
+        time_spent = time.time() - start_time
+        result = interpret_traverse_output(command_list, visitor.has_unexplored_node)
         pbar.clear()
     module_prefix = escape_lemma_name(module_name)
 
     if lemma_name == "":
         search_file.unnamed_goal_number += 1
-        g.draw(f"{args.output_dir}/{module_prefix}{lemma_name}"
-               f"{search_file.unnamed_goal_number}.svg")
+        svg_graph_filename = f"{args.output_dir}/{module_prefix}{lemma_name}" \
+                             f"{search_file.unnamed_goal_number}.svg"
     else:
-        g.draw(f"{args.output_dir}/{module_prefix}{lemma_name}.svg")
+        svg_graph_filename = f"{args.output_dir}/{module_prefix}{lemma_name}.svg"
+    g.draw(svg_graph_filename)
+    metrics = extract_metrics_dict(graph_interface, result, time_spent, visitor)
+    return result, metrics
 
-    if command_list:
-        return SearchResult(SearchStatus.SUCCESS, command_list)
-    if visitor.has_unexplored_node:
-        return SearchResult(SearchStatus.INCOMPLETE, None)
-    return SearchResult(SearchStatus.FAILURE, None)
+
+def extract_metrics_dict(graph_interface: CoqGraphInterface,
+                         result: SearchResult,
+                         time_spent,
+                         visitor: CoqVisitor) -> Dict:
+    spent_in_coq = graph_interface.time_spent_in_coq
+    spent_in_pred = graph_interface.time_spent_in_predictor
+    spent_in_python = time_spent - spent_in_coq - spent_in_pred
+    spent_in_branch_switching = graph_interface.time_spent_in_branch_switching
+    spent_except_branch_switching = time_spent - graph_interface.time_spent_in_branch_switching
+
+    perc_spent_in_coq = spent_in_coq / time_spent
+    perc_spent_in_pred = spent_in_pred / time_spent
+    perc_spent_in_python = spent_in_python / time_spent
+    perc_spent_in_branch_switching = spent_in_branch_switching / time_spent
+
+    total_nodes_visited = visitor.total_nodes_visited
+
+    metrics_dict = {
+        "time_spent": time_spent,
+        "spent_in_coq": spent_in_coq,
+        "spent_in_pred": spent_in_pred,
+        "spent_in_python": spent_in_python,
+        "spent_in_branch_switching": spent_in_branch_switching,
+        "spent_except_branch_switching": spent_except_branch_switching,
+        "perc_spent_in_coq": perc_spent_in_coq,
+        "perc_spent_in_pred": perc_spent_in_pred,
+        "perc_spent_in_python": perc_spent_in_python,
+        "perc_spent_in_branch_switching": perc_spent_in_branch_switching,
+        "total_nodes_visited": total_nodes_visited,
+    }
+    metrics_dict.update(search_file.metrics_from_search_result(result))
+    return metrics_dict

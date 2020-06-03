@@ -50,6 +50,8 @@ index_js = ["report.js"]
 extra_files = index_css + index_js + ["logo.png"]
 
 from tqdm import tqdm
+import logger
+
 
 def main(arg_list : List[str]) -> None:
     parser = argparse.ArgumentParser(
@@ -68,6 +70,11 @@ def main(arg_list : List[str]) -> None:
     args, unknown_args = parser.parse_known_args(arg_list)
     commit, date = get_metadata()
     base = Path2(os.path.dirname(os.path.abspath(__file__)) + "/..")
+
+    # all_args = {}
+    # all_args.update(vars(args))
+    # all_args.update({"unk_arg"+str(i): v for i, v in enumerate(unknown_args)})
+    logger.init_logger(vars(args))
 
     if not args.output.exists():
         args.output.makedirs()
