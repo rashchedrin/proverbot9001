@@ -231,6 +231,9 @@ def parse_arguments(args_list: List[str]) -> Tuple[argparse.Namespace,
                         type=int, default=2)
     parser.add_argument("--max-proof-time", dest="max_proof_time",
                         type=float, default=300)
+    parser.add_argument("--max-lemma-proof-search-time", dest="max_lemma_proof_search_time",
+                        help="Time limit for lemma proof search. Doesn't work for OldDFS",
+                        type=float, default=9999999999)
     parser.add_argument("--max-tactic-time", type=float, default=2)
     parser.add_argument("--linearize", action='store_true')
     parser.add_argument("--proof-times", default=None, type=Path2)
@@ -254,6 +257,8 @@ def parse_arguments(args_list: List[str]) -> Tuple[argparse.Namespace,
                         default="BestFS", dest='traverse_method')
     parser.add_argument('--dont-skip-visited', dest='skip_visited', action='store_false')
     parser.set_defaults(skip_visited=True)
+    parser.add_argument('--experiment-tag',
+                        default="V_01", dest='experiment_tag')
     known_args, unknown_args = parser.parse_known_args(args_list)
     return known_args, parser
 

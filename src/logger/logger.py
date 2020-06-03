@@ -39,4 +39,4 @@ def set_experiment_as_lemma(module_name, lemma_name, args):
     experiment_params.update({
         "module_and_lemma_name": module_and_lemma_name
     })
-    set_experiment(experiment_name, experiment_params, tags=['V_01'])
+    set_experiment(experiment_name, experiment_params, tags=[args.experiment_tag])

@@ -284,15 +284,22 @@ class CoqVisitor(BestFirstSearchVisitor):
         self._nodes_score: Dict[int, float] = {}
         self._seen_contexts = set()
         self.total_nodes_visited = 0
+        self._deadline_time = time.time() + args.max_lemma_proof_search_time
 
     def on_enter(self, graph: CoqGraphInterface, entered_node: CoqGraphNode) -> TraverseVisitorResult:
         # print(f"Launched from {entered_node.tactic_trace}")
+        if time.time() > self._deadline_time:
+            self.has_unexplored_node = True
+            return TraverseVisitorResult(do_return=True, what_return=SubSearchResult(None, 0))
         self._seen_contexts.add(str(entered_node.context_after))
         self.total_nodes_visited += 1
         return super().on_enter(graph, entered_node)
 
     def on_traveling_edge(self, graph: CoqGraphInterface, frm: CoqGraphNode, edge: Edge) -> TraverseVisitorResult:
         """limit search width"""
+        if time.time() > self._deadline_time:
+            self.has_unexplored_node = True
+            return TraverseVisitorResult(do_return=True, what_return=SubSearchResult(None, 0))
         if self._num_successful_predictions[frm.tactic_trace] >= self._args.search_width:
             return TraverseVisitorResult(stop_discovering_edges=True)
         return TraverseVisitorResult()
@@ -311,6 +318,9 @@ class CoqVisitor(BestFirstSearchVisitor):
             depth limit --> return, has_unexplored = true
 
         """
+        if time.time() > self._deadline_time:
+            self.has_unexplored_node = True
+            return TraverseVisitorResult(do_return=True, what_return=SubSearchResult(None, 0))
         if discovered is None:  # coq error
             return TraverseVisitorResult(do_skip=True)
         self._num_successful_predictions[frm.tactic_trace] += 1
@@ -428,9 +438,9 @@ def proof_search_with_graph_visitor(lemma_statement: str,
                  position=((bar_idx * 2) + 1),
                  dynamic_ncols=True, bar_format=mybarfmt) as pbar:
         # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
+        start_time = time.time()
         visitor = CoqVisitor(pbar, g, args, tuple())
         graph_interface = CoqGraphInterface(coq, args, g)
-        start_time = time.time()
         command_list, _ = traverse_function(graph_interface.root,
                                             graph_interface,
                                             visitor)
