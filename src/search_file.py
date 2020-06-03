@@ -255,6 +255,10 @@ def parse_arguments(args_list: List[str]) -> Tuple[argparse.Namespace,
     parser.add_argument("--log-anomalies", type=Path2, default=None)
     parser.add_argument('--traverse-method', choices=["BestFS", "DFS", "OldDFS", "BFS"],
                         default="BestFS", dest='traverse_method')
+    parser.add_argument('--bestfs-edge-scoring-fun', choices=["certainty", "product_certainty"],
+                        default="certainty", dest='bestfs_edge_scoring_fun')
+    parser.add_argument("--bestfs-edge-scoring-temperature", dest="bestfs_edge_scoring_temperature",
+                        type=float, default=1.0)
     parser.add_argument('--dont-skip-visited', dest='skip_visited', action='store_false')
     parser.set_defaults(skip_visited=True)
     parser.add_argument('--experiment-tag',
@@ -987,6 +991,8 @@ def contextIsBig(context : ProofContext):
     return False
 
 def numNodesInTree(branching_factor : int, depth : int):
+    if depth*branching_factor > 100000:
+        return 9999999 # too big anyway
     assert depth > 0, f"depth is {depth}"
     result = int((branching_factor ** depth - 1) / \
                  (branching_factor - 1))
@@ -1007,7 +1013,8 @@ class TqdmSpy(tqdm):
         self.n = self.n + value
         super().update(value);
 
-from search_dfs_via_visitor import proof_search_with_graph_visitor
+from search_dfs_via_visitor import proof_search_with_graph_visitor, \
+    CoqVisitorCertaintyEdgeScore, CoqVisitorProductCertaintyEdgeScore
 # from search_dfs import dfs_proof_search_with_graph
 from tree_traverses import best_first_search, dfs, bfs
 
@@ -1171,8 +1178,17 @@ def attempt_search(args : argparse.Namespace,
         traverse_function = bfs
     else:
         raise NotImplementedError(f"Unknown traverse method {args.traverse_method}")
+
+    if args.bestfs_edge_scoring_fun == "certainty":
+        visitor_class=CoqVisitorCertaintyEdgeScore
+    elif args.bestfs_edge_scoring_fun == "product_certainty":
+        visitor_class = CoqVisitorProductCertaintyEdgeScore
+    else:
+        raise NotImplementedError(f"Unknown bestfs-edge-scoring-fun {args.bestfs_edge_scoring_fun}")
     result, metrics = proof_search_with_graph_visitor(lemma_statement, module_name, coq, args, bar_idx,
-                                             traverse_function=traverse_function)
+                                             traverse_function=traverse_function,
+                                                      visitor_class=visitor_class,
+                                                      temperature=args.bestfs_edge_scoring_temperature)
     logger.log_metrics(metrics)
     return result
 

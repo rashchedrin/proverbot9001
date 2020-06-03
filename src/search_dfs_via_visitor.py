@@ -21,6 +21,8 @@ from tree_traverses import dfs_non_recursive_no_hashes, bfs, dfs, best_first_sea
     TreeTraverseVisitor, BestFirstSearchVisitor, GraphInterface, \
     TraverseVisitorResult
 from models.tactic_predictor import Prediction
+from scipy.special import softmax
+import numpy as np
 import logger
 
 
@@ -105,6 +107,7 @@ class CoqGraphNode(NamedTuple):
     is_proof_completed: bool
     vis_node: LabeledNode
     tactic_trace: Tuple
+    certainty_product: float
 
 
 class _HistoryElem(NamedTuple):
@@ -128,6 +131,7 @@ class CoqGraphInterface(GraphInterface):
                  coq: serapi_instance.SerapiInstance,
                  args: argparse.Namespace,
                  vis_graph: SearchGraph,
+                 temperature: float = 1.0,
                  ):
         self._coq = coq
         self._args = args
@@ -138,7 +142,7 @@ class CoqGraphInterface(GraphInterface):
 
         # todo: figure out correct initialization
         root_node = CoqGraphNode(coq.proof_context, None, None, completed_proof(coq),
-                                 self._vis_graph.start_node, tuple())
+                                 self._vis_graph.start_node, tuple(), 1.0)
         self._tactic_trace_to_node[tuple()] = root_node
         self.root = root_node
         # top of this stack must always contain what state_id was before last tactic application, and last tactic application
@@ -146,6 +150,7 @@ class CoqGraphInterface(GraphInterface):
         self.time_spent_in_predictor: float = 0.0
         self.time_spent_in_coq: float = 0.0
         self.time_spent_in_branch_switching: float = 0.0
+        self._temperature = temperature
 
     def undo_tactic(self):
         if not self._stack_of_prev_state_ids_and_tactics:
@@ -180,6 +185,8 @@ class CoqGraphInterface(GraphInterface):
         self._goto_state_fake(node.tactic_trace, "get outgoing edges")
         pred_start = time.time()
         predictions, certainties = predict_k_tactics(self._coq, self._args, self._args.max_attempts)
+        if self._temperature != 1.0:
+            certainties = softmax(np.exp(certainties)/self._temperature).tolist()
         pred_spent = time.time() - pred_start
         self.time_spent_in_predictor += pred_spent
         edges = [Edge(node.tactic_trace, pred, certainty) for pred, certainty in zip(predictions, certainties)]
@@ -220,7 +227,8 @@ class CoqGraphInterface(GraphInterface):
             # print(f"mov {self._coq.tactic_trace()} => {edge.frm_hash} {edge.tactic}", end='')
             self._goto_state_fake(edge.frm_tactic_trace, "goto edge source")
         context_before = self._coq.proof_context
-        parent_vis_node = self._tactic_trace_to_node[edge.frm_tactic_trace].vis_node
+        parent_node: CoqGraphNode = self._tactic_trace_to_node[edge.frm_tactic_trace]
+        parent_vis_node = parent_node.vis_node
         context_after, _, subgoals_closed, subgoals_opened, error, time_taken = \
             self.run_prediction(edge.tactic)
         new_trace = self.tactic_trace()
@@ -232,8 +240,9 @@ class CoqGraphInterface(GraphInterface):
         is_proof_completed = completed_proof(self._coq)
         new_vis_node = self._vis_graph.mkNode(edge.tactic, context_before, parent_vis_node)
         new_vis_node.time_taken = time_taken
+        new_certainty_product = parent_node.certainty_product * edge.certainty
         new_node = CoqGraphNode(context_after, subgoals_opened, subgoals_closed, is_proof_completed,
-                                new_vis_node, new_trace)
+                                new_vis_node, new_trace, new_certainty_product)
         self._tactic_trace_to_node[new_trace] = new_node
         self._memoized_edge_destinations[edge] = new_node
         # assert new_hash != edge.frm_hash, f"\n{edge.frm_hash}\n->\n{edge.tactic}\n->\n {new_hash}"
@@ -404,8 +413,18 @@ class CoqVisitor(BestFirstSearchVisitor):
         # print(f"Exiting {node_left.tactic_trace} at stage {stage}")
         return TraverseVisitorResult(what_return=SubSearchResult(None, 0), do_return=True)
 
+
+class CoqVisitorCertaintyEdgeScore(CoqVisitor):
     def _eval_edge(self, tree: CoqGraphInterface, edge: Edge):
         return edge.certainty
+
+    def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
+        return max(range(len(leaf_edges)), key=lambda i: self._eval_edge(tree, leaf_edges[i]))
+
+
+class CoqVisitorProductCertaintyEdgeScore(CoqVisitor):
+    def _eval_edge(self, tree: CoqGraphInterface, edge: Edge):
+        return edge.certainty * tree._tactic_trace_to_node[edge.frm_tactic_trace].certainty_product
 
     def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
         return max(range(len(leaf_edges)), key=lambda i: self._eval_edge(tree, leaf_edges[i]))
@@ -424,7 +443,9 @@ def proof_search_with_graph_visitor(lemma_statement: str,
                                     coq: serapi_instance.SerapiInstance,
                                     args: argparse.Namespace,
                                     bar_idx: int,
-                                    traverse_function=best_first_search) -> Tuple[SearchResult, Dict]:
+                                    traverse_function=best_first_search,
+                                    visitor_class=CoqVisitorCertaintyEdgeScore,
+                                    temperature=1.0) -> Tuple[SearchResult, Dict]:
     lemma_name = serapi_instance.lemma_name_from_statement(lemma_statement)
     g = SearchGraph(lemma_name)
 
@@ -439,8 +460,8 @@ def proof_search_with_graph_visitor(lemma_statement: str,
                  dynamic_ncols=True, bar_format=mybarfmt) as pbar:
         # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
         start_time = time.time()
-        visitor = CoqVisitor(pbar, g, args, tuple())
-        graph_interface = CoqGraphInterface(coq, args, g)
+        visitor = visitor_class(pbar=pbar, vis_graph=g, args=args, initial_tactic_trace=tuple())
+        graph_interface = CoqGraphInterface(coq, args, g, temperature=temperature)
         command_list, _ = traverse_function(graph_interface.root,
                                             graph_interface,
                                             visitor)
@@ -456,6 +477,7 @@ def proof_search_with_graph_visitor(lemma_statement: str,
     else:
         svg_graph_filename = f"{args.output_dir}/{module_prefix}{lemma_name}.svg"
     g.draw(svg_graph_filename)
+    logger.log_image("search_graph", svg_graph_filename)
     metrics = extract_metrics_dict(graph_interface, result, time_spent, visitor)
     return result, metrics
 

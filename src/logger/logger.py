@@ -25,6 +25,8 @@ def log_metric(metric_name: str, metric_value):
     else:
         neptune.log_metric(metric_name, metric_value)
 
+def log_image(pic_name, filename):
+    neptune.log_image(pic_name, filename)
 
 def log_metrics(metrics: Dict):
     for metric_name, metric_value in metrics.items():
