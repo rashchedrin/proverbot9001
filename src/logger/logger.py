@@ -20,9 +20,11 @@ def set_experiment(name: str, experiment_parameters: Dict[str, str], tags: Optio
     all_params = {}
     all_params.update(__init_params)
     all_params.update(experiment_parameters)
-    params_digest = dict_digest(all_params)[:10]
+    digest_params = all_params.copy()
+    del digest_params['module_and_lemma_name']
+    params_digest = dict_digest(digest_params)[:10]
     tags = [params_digest] if tags is None else tags + [params_digest]
-    neptune.create_experiment(name=name, params=experiment_parameters, tags=tags)
+    neptune.create_experiment(name=name, params=all_params, tags=tags)
 
 
 def log_metric(metric_name: str, metric_value):
