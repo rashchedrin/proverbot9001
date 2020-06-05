@@ -473,11 +473,12 @@ def proof_search_with_graph_visitor(lemma_statement: str,
     if lemma_name == "":
         search_file.unnamed_goal_number += 1
         svg_graph_filename = f"{args.output_dir}/{module_prefix}{lemma_name}" \
-                             f"{search_file.unnamed_goal_number}.svg"
+                             f"{search_file.unnamed_goal_number}"
     else:
-        svg_graph_filename = f"{args.output_dir}/{module_prefix}{lemma_name}.svg"
-    g.draw(svg_graph_filename)
-    logger.log_image("search_graph", svg_graph_filename)
+        svg_graph_filename = f"{args.output_dir}/{module_prefix}{lemma_name}"
+    g.draw(svg_graph_filename+".svg")
+    g.draw(svg_graph_filename+".png")
+    logger.log_image("search_graph", svg_graph_filename+".png")
     metrics = extract_metrics_dict(graph_interface, result, time_spent, visitor)
     return result, metrics
 
