@@ -1164,7 +1164,7 @@ def attempt_search(args: argparse.Namespace,
         -> SearchResult:
     lemma_name = serapi_instance.lemma_name_from_statement(lemma_statement)
     logger.set_experiment_as_lemma(module_name, lemma_name, args)
-    log_filename = str(args.output) + "/" + logger.run_id() + escape_lemma_name(module_name) + lemma_name+".apkl"
+    log_filename = str(args.output_dir) + "/" + logger.run_id() + escape_lemma_name(module_name) + lemma_name+".apkl"
     if args.traverse_method == "OldDFS":
         start = time.time()
         result = old_dfs_proof_search_with_graph(lemma_statement, module_name, coq, args, bar_idx)
