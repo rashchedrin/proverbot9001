@@ -1155,20 +1155,22 @@ def old_dfs_proof_search_with_graph(lemma_statement : str,
     else:
         return SearchResult(SearchStatus.FAILURE, None)
 
-def attempt_search(args : argparse.Namespace,
-                   lemma_statement : str,
-                   module_name : Optional[str],
-                   coq : serapi_instance.SerapiInstance,
-                   bar_idx : int) \
-    -> SearchResult:
+
+def attempt_search(args: argparse.Namespace,
+                   lemma_statement: str,
+                   module_name: Optional[str],
+                   coq: serapi_instance.SerapiInstance,
+                   bar_idx: int) \
+        -> SearchResult:
     lemma_name = serapi_instance.lemma_name_from_statement(lemma_statement)
     logger.set_experiment_as_lemma(module_name, lemma_name, args)
+    log_filename = str(args.output) + "/" + logger.run_id() + escape_lemma_name(module_name) + lemma_name+".apkl"
     if args.traverse_method == "OldDFS":
         start = time.time()
         result = old_dfs_proof_search_with_graph(lemma_statement, module_name, coq, args, bar_idx)
         time_spent = time.time() - start
-        logger.log_metric("time_spent", time_spent)
-        logger.log_metrics(metrics_from_search_result(result))
+        logger.log_metric(log_filename, "time_spent", time_spent)
+        logger.log_metrics(log_filename, metrics_from_search_result(result))
         return result
     if args.traverse_method == "DFS":
         traverse_function = dfs
@@ -1180,16 +1182,16 @@ def attempt_search(args : argparse.Namespace,
         raise NotImplementedError(f"Unknown traverse method {args.traverse_method}")
 
     if args.bestfs_edge_scoring_fun == "certainty":
-        visitor_class=CoqVisitorCertaintyEdgeScore
+        visitor_class = CoqVisitorCertaintyEdgeScore
     elif args.bestfs_edge_scoring_fun == "product_certainty":
         visitor_class = CoqVisitorProductCertaintyEdgeScore
     else:
         raise NotImplementedError(f"Unknown bestfs-edge-scoring-fun {args.bestfs_edge_scoring_fun}")
     result, metrics = proof_search_with_graph_visitor(lemma_statement, module_name, coq, args, bar_idx,
-                                             traverse_function=traverse_function,
+                                                      traverse_function=traverse_function,
                                                       visitor_class=visitor_class,
                                                       temperature=args.bestfs_edge_scoring_temperature)
-    logger.log_metrics(metrics)
+    logger.log_metrics(log_filename, metrics)
     return result
 
 # This implementation is here for reference/documentation
