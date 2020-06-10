@@ -257,6 +257,30 @@ class BestFSLoggingDroppingVisitor(LoggingDroppingVisitor):
         self._log.append(("pick", pick))
         return pick
 
+class BestFSyDFSLoggingDroppingVisitor(LoggingDroppingVisitor):
+    def edge_picker(self, tree, leaf_edges):
+        pick = len(leaf_edges) - 1
+        # self._log.append(("pick", pick))
+        return pick
+
+
+def test_bestfs_dfs_equiv():
+    random.seed(47)
+    counter = 0
+    for size in range(100):
+        print(random.randint(1, 100000))
+        print(f"\n{size} ", end='')
+        for attempt in range(10):
+            counter += 1
+            print(counter, end=' ')
+            tree = mk_random_tree(size, TreeU)
+            seed_str = f"({counter})"
+
+            def visitor_maker():
+                return BestFSyDFSLoggingDroppingVisitor(seed=seed_str)
+
+            check_equivalence(tree, impl_first=etalon, impl_second=best_first_search,
+                              visitor_maker=visitor_maker)
 
 def test_bestfs_doesnt_throw():
     random.seed(78)
@@ -271,7 +295,6 @@ def test_bestfs_doesnt_throw():
             seed_str = f"({counter})"
             visitor = BestFSLoggingDroppingVisitor(seed=seed_str)
             best_first_search(tree.root(), tree, visitor, True)
-
 
 
 @pytest.mark.parametrize("alternative", [dfs_non_recursive_no_hashes, bdfs])

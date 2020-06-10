@@ -890,7 +890,7 @@ def best_first_search(initial_node: Any,
                 return
         mark_expanded(node_id)
 
-    ids_edges_to_visit = get_edges_ids(initial_node_id)
+    ids_edges_to_visit = list(reversed(get_edges_ids(initial_node_id)))
     while ids_edges_to_visit:
         assert_invariants()
         cur_edge_id: int = ids_edges_to_visit.pop(choose_edge())
@@ -924,7 +924,8 @@ def best_first_search(initial_node: Any,
         nodes_info.append(BestFSNodeWrapper(child, cur_edge_and_origin.origin_node_id))
         nodes_info[cur_edge_and_origin.origin_node_id]._children_ids.append(child_id)
         child_edges_ids: List = get_edges_ids(child_id)
-        ids_edges_to_visit += child_edges_ids
+        # reverse, to allow converting it to DFS using `choose_edge = last`
+        ids_edges_to_visit += list(reversed(child_edges_ids))
         attempt_mark_expanded(cur_edge_and_origin.origin_node_id)
     assert_invariants()
     if nodes_info[initial_node_id].state != CLOSED:

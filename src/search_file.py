@@ -255,7 +255,10 @@ def parse_arguments(args_list: List[str]) -> Tuple[argparse.Namespace,
     parser.add_argument("--log-anomalies", type=Path2, default=None)
     parser.add_argument('--traverse-method', choices=["BestFS", "DFS", "OldDFS", "BFS"],
                         default="BestFS", dest='traverse_method')
-    parser.add_argument('--bestfs-edge-scoring-fun', choices=["certainty", "product_certainty"],
+    parser.add_argument('--bestfs-edge-scoring-fun', choices=["certainty",
+                                                              "product_certainty",
+                                                              "dfs_then_product_certainty",
+                                                              "BestFSyDFS"],
                         default="certainty", dest='bestfs_edge_scoring_fun')
     parser.add_argument("--bestfs-edge-scoring-temperature", dest="bestfs_edge_scoring_temperature",
                         type=float, default=1.0)
@@ -305,6 +308,84 @@ def search_file(args: argparse.Namespace, coqargs: List[str],
     blocks_out: List[DocumentBlock] = []
     commands_caught_up = 0
     lemmas_to_skip: List[str] = []
+    lemmas_to_proof = {'ZOmod_small_abs',
+ 'Zcompare_Lt',
+ 'Zgt_not_eq',
+ 'Zlt_bool_true',
+ 'Zopp_le_cancel',
+ 'Zpower_gt_0',
+ 'Zpower_nat_S',
+ 'Zsame_sign_imp',
+ 'Zsame_sign_trans_weak',
+ 'abs_cond_Zopp',
+ 'add_globals_app',
+ 'add_globals_unique_preserves',
+ 'cast_idempotent',
+ 'cond_Zopp_Zlt_bool',
+ 'cond_Zopp_negb',
+ 'dests_append',
+ 'dests_decomp',
+ 'diff_sym',
+ 'disjoint_cons_left',
+ 'disjoint_cons_right',
+ 'disjoint_list_notin',
+ 'env_equiv_refl',
+ "env_equiv_refl'",
+ 'env_equiv_sym',
+ 'env_equiv_trans',
+ 'eq_int_type',
+ 'eq_refl',
+ 'eq_sym',
+ 'eq_trans',
+ "exec_Iop'",
+ 'exec_seq_app',
+ 'exec_seq_rev_app',
+ 'find_funct_find_funct_ptr',
+ 'find_funct_inversion',
+ 'find_funct_ptr_iff',
+ 'find_var_info_iff',
+ 'getpair_exten',
+ 'global_addresses_distinct',
+ 'gss',
+ 'gss_reg',
+ 'index_inj',
+ 'is_mill_cons',
+ 'is_path_pop',
+ 'is_validator_forall_lookahead_set',
+ 'iter_nat_S',
+ 'match_is_call_cont',
+ 'no_adherence_tmp',
+ 'no_overlap_sym',
+ 'notbool_bool_val',
+ 'notin_dests_cons',
+ 'notin_iff',
+ 'pairwise_disjoint_norepet',
+ 'parmove2_wf_moves',
+ 'parmove_aux',
+ 'parmove_initial_reg_or_temp',
+ 'public_symbol_exists',
+ 'sel_builtin_res_correct',
+ 'sel_final_states',
+ 'set_locals_lessdef',
+ 'set_optvar_lessdef',
+ 'shift_symbol_address',
+ 'shift_symbol_address_32',
+ 'shift_symbol_address_64',
+ 'slot_eq',
+ 'srcs_append',
+ 'srcs_decomp',
+ 'typealign_pos',
+ 'typeconv_integer_promotion',
+ 'typesize_pos',
+ 'unroll_Fixm',
+ 'update_ident',
+ 'update_o',
+ 'update_s',
+ 'val_inject_of_bool',
+ 'val_inject_vfalse',
+ 'val_inject_vptrofs',
+ 'val_inject_vtrue',
+ 'wf_moves_cons'}
 
     if args.resume:
         try:
@@ -504,7 +585,9 @@ def search_file(args: argparse.Namespace, coqargs: List[str],
                         if lemma_statement in lemmas_to_skip or \
                            (args.proof and
                             serapi_instance.lemma_name_from_statement(lemma_statement)
-                            != args.proof):
+                            != args.proof) \
+                                or (lemmas_to_proof and (serapi_instance.lemma_name_from_statement(lemma_statement) not in lemmas_to_proof)):
+                            print("skipping " + serapi_instance.lemma_name_from_statement(lemma_statement))
                             search_status = SearchStatus.FAILURE
                             tactic_solution : Optional[List[TacticInteraction]] = []
                         else:
@@ -1014,7 +1097,8 @@ class TqdmSpy(tqdm):
         super().update(value);
 
 from search_dfs_via_visitor import proof_search_with_graph_visitor, \
-    CoqVisitorCertaintyEdgeScore, CoqVisitorProductCertaintyEdgeScore
+    CoqVisitorCertaintyEdgeScore, CoqVisitorProductCertaintyEdgeScore,\
+    CoqVisitorDfsThenProductCertainty, CoqVisitorDfs
 # from search_dfs import dfs_proof_search_with_graph
 from tree_traverses import best_first_search, dfs, bfs
 
@@ -1185,6 +1269,10 @@ def attempt_search(args: argparse.Namespace,
         visitor_class = CoqVisitorCertaintyEdgeScore
     elif args.bestfs_edge_scoring_fun == "product_certainty":
         visitor_class = CoqVisitorProductCertaintyEdgeScore
+    elif args.bestfs_edge_scoring_fun == "dfs_then_product_certainty":
+        visitor_class = CoqVisitorDfsThenProductCertainty
+    elif args.bestfs_edge_scoring_fun == "BestFSyDFS":
+        visitor_class = CoqVisitorDfs
     else:
         raise NotImplementedError(f"Unknown bestfs-edge-scoring-fun {args.bestfs_edge_scoring_fun}")
     result, metrics = proof_search_with_graph_visitor(lemma_statement, module_name, coq, args, bar_idx,

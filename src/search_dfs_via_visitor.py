@@ -293,7 +293,8 @@ class CoqVisitor(BestFirstSearchVisitor):
         self._nodes_score: Dict[int, float] = {}
         self._seen_contexts = set()
         self.total_nodes_visited = 0
-        self._deadline_time = time.time() + args.max_lemma_proof_search_time
+        self._creation_time = time.time()
+        self._deadline_time = self._creation_time + args.max_lemma_proof_search_time
 
     def on_enter(self, graph: CoqGraphInterface, entered_node: CoqGraphNode) -> TraverseVisitorResult:
         # print(f"Launched from {entered_node.tactic_trace}")
@@ -429,6 +430,19 @@ class CoqVisitorProductCertaintyEdgeScore(CoqVisitor):
     def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
         return max(range(len(leaf_edges)), key=lambda i: self._eval_edge(tree, leaf_edges[i]))
 
+class CoqVisitorDfsThenProductCertainty(CoqVisitor):
+    def _eval_edge(self, tree: CoqGraphInterface, edge: Edge):
+        return edge.certainty * tree._tactic_trace_to_node[edge.frm_tactic_trace].certainty_product
+
+    def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
+        if time.time() < 5.0 + self._creation_time:
+            return len(leaf_edges) - 1 # DFS
+        else:
+            return max(range(len(leaf_edges)), key=lambda i: self._eval_edge(tree, leaf_edges[i]))
+
+class CoqVisitorDfs(CoqVisitor):
+    def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
+        return len(leaf_edges) - 1
 
 def interpret_traverse_output(command_list: Optional[List], has_unexplored_node: bool) -> SearchResult:
     if command_list:

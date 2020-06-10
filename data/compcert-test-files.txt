@@ -3,11 +3,8 @@
 ./backend/Selectionproof.v
 ./cfrontend/Cop.v
 ./exportclight/Clightdefs.v
-./cparser/MenhirLib/Validator_complete.v
 ./x86/SelectOpproof.v
 ./flocq/Calc/Round.v
 ./flocq/Prop/Mult_error.v
 ./flocq/Core/Zaux.v
 ./lib/Parmov.v
-./lib/Wfsimpl.v
-./common/Globalenvs.v
