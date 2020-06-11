@@ -438,6 +438,8 @@ class CoqVisitorDfsThenProductCertainty(CoqVisitor):
         if time.time() < 5.0 + self._creation_time:
             return len(leaf_edges) - 1 # DFS
         else:
+            self._args.search_depth = 99999 # remove tree shape constraints, and switch to BestFS
+            self._args.search_width = 99999
             return max(range(len(leaf_edges)), key=lambda i: self._eval_edge(tree, leaf_edges[i]))
 
 class CoqVisitorDfs(CoqVisitor):
