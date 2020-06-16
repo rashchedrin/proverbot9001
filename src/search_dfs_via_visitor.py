@@ -132,6 +132,7 @@ class CoqGraphInterface(GraphInterface):
                  args: argparse.Namespace,
                  vis_graph: SearchGraph,
                  temperature: float = 1.0,
+                 certainty_bias: float = 0.0,
                  ):
         self._coq = coq
         self._args = args
@@ -151,6 +152,7 @@ class CoqGraphInterface(GraphInterface):
         self.time_spent_in_coq: float = 0.0
         self.time_spent_in_branch_switching: float = 0.0
         self._temperature = temperature
+        self._certainty_bias = certainty_bias
 
     def undo_tactic(self):
         if not self._stack_of_prev_state_ids_and_tactics:
@@ -185,8 +187,10 @@ class CoqGraphInterface(GraphInterface):
         self._goto_state_fake(node.tactic_trace, "get outgoing edges")
         pred_start = time.time()
         predictions, certainties = predict_k_tactics(self._coq, self._args, self._args.max_attempts)
+        certainties = np.array(certainties) + self._certainty_bias
         if self._temperature != 1.0:
-            certainties = softmax(np.exp(certainties)/self._temperature).tolist()
+            certainties = (softmax(np.exp(certainties)/self._temperature) + self._certainty_bias)
+        certainties = certainties.tolist()
         pred_spent = time.time() - pred_start
         self.time_spent_in_predictor += pred_spent
         edges = [Edge(node.tactic_trace, pred, certainty) for pred, certainty in zip(predictions, certainties)]
@@ -430,6 +434,7 @@ class CoqVisitorProductCertaintyEdgeScore(CoqVisitor):
     def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
         return max(range(len(leaf_edges)), key=lambda i: self.edge_product_certinty(tree, leaf_edges[i]))
 
+
 class CoqVisitorProductCertaintyWithCurNodeBonus(CoqVisitorProductCertaintyEdgeScore):
     def edge_score_with_bonus(self, tree: CoqGraphInterface, edge: Edge):
         edge_score = self.edge_product_certinty(tree, edge)
@@ -493,7 +498,8 @@ def proof_search_with_graph_visitor(lemma_statement: str,
                                     bar_idx: int,
                                     traverse_function=best_first_search,
                                     visitor_class=CoqVisitorCertaintyEdgeScore,
-                                    temperature=1.0) -> Tuple[SearchResult, Dict]:
+                                    temperature=1.0,
+                                    certainty_bias=0.0) -> Tuple[SearchResult, Dict]:
     lemma_name = serapi_instance.lemma_name_from_statement(lemma_statement)
     g = SearchGraph(lemma_name)
 
@@ -509,7 +515,7 @@ def proof_search_with_graph_visitor(lemma_statement: str,
         # visitor = CoqVisitor(pbar, [g.start_node], [], 0)
         start_time = time.time()
         visitor = visitor_class(pbar=pbar, vis_graph=g, args=args, initial_tactic_trace=tuple())
-        graph_interface = CoqGraphInterface(coq, args, g, temperature=temperature)
+        graph_interface = CoqGraphInterface(coq, args, g, temperature=temperature, certainty_bias=certainty_bias)
         command_list, _ = traverse_function(graph_interface.root,
                                             graph_interface,
                                             visitor)
