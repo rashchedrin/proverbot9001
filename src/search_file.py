@@ -266,6 +266,9 @@ def parse_arguments(args_list: List[str]) -> Tuple[argparse.Namespace,
     parser.set_defaults(skip_visited=True)
     parser.add_argument('--experiment-tag',
                         default="V_01", dest='experiment_tag')
+    parser.add_argument('--cur-node-bonus', dest='cur_node_bonus', type=int, default=1.1)
+    parser.add_argument('--cur-node-bonus-type', choices=["additive", "multiplicative", "none"],
+                        default="none", dest='cur_node_bonus_type')
     known_args, unknown_args = parser.parse_known_args(args_list)
     return known_args, parser
 
@@ -1019,8 +1022,7 @@ class TqdmSpy(tqdm):
         super().update(value);
 
 from search_dfs_via_visitor import proof_search_with_graph_visitor, \
-    CoqVisitorCertaintyEdgeScore, CoqVisitorProductCertaintyEdgeScore,\
-    CoqVisitorDfsThenProductCertainty, CoqVisitorDfs
+    CoqVisitorCertaintyWithCurNodeBonus, CoqVisitorProductCertaintyWithCurNodeBonus, CoqVisitorDfs
 # from search_dfs import dfs_proof_search_with_graph
 from tree_traverses import best_first_search, dfs, bfs
 
@@ -1188,9 +1190,9 @@ def attempt_search(args: argparse.Namespace,
         raise NotImplementedError(f"Unknown traverse method {args.traverse_method}")
 
     if args.bestfs_edge_scoring_fun == "certainty":
-        visitor_class = CoqVisitorCertaintyEdgeScore
+        visitor_class = CoqVisitorCertaintyWithCurNodeBonus
     elif args.bestfs_edge_scoring_fun == "product_certainty":
-        visitor_class = CoqVisitorProductCertaintyEdgeScore
+        visitor_class = CoqVisitorProductCertaintyWithCurNodeBonus
     elif args.bestfs_edge_scoring_fun == "dfs_then_product_certainty":
         visitor_class = CoqVisitorDfsThenProductCertainty
     elif args.bestfs_edge_scoring_fun == "BestFSyDFS":

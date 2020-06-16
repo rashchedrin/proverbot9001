@@ -424,11 +424,43 @@ class CoqVisitorCertaintyEdgeScore(CoqVisitor):
 
 
 class CoqVisitorProductCertaintyEdgeScore(CoqVisitor):
-    def _eval_edge(self, tree: CoqGraphInterface, edge: Edge):
+    def edge_product_certinty(self, tree: CoqGraphInterface, edge: Edge):
         return edge.certainty * tree._tactic_trace_to_node[edge.frm_tactic_trace].certainty_product
 
     def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
-        return max(range(len(leaf_edges)), key=lambda i: self._eval_edge(tree, leaf_edges[i]))
+        return max(range(len(leaf_edges)), key=lambda i: self.edge_product_certinty(tree, leaf_edges[i]))
+
+class CoqVisitorProductCertaintyWithCurNodeBonus(CoqVisitorProductCertaintyEdgeScore):
+    def edge_score_with_bonus(self, tree: CoqGraphInterface, edge: Edge):
+        edge_score = self.edge_product_certinty(tree, edge)
+        if edge.frm_tactic_trace == tree.tactic_trace() and self._args.cur_node_bonus_type != 'none':
+            bonus = self._args.cur_node_bonus
+            if self._args.cur_node_bonus_type == 'multiplicative':
+                edge_score *= bonus
+            elif self._args.bonus_type == 'additive':
+                edge_score += bonus
+            else:
+                raise NotImplementedError(f"Unknown bonus type {self._args.bonus_type}")
+        return edge_score
+
+    def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
+        return max(range(len(leaf_edges)), key=lambda i: self.edge_score_with_bonus(tree, leaf_edges[i]))
+
+class CoqVisitorCertaintyWithCurNodeBonus(CoqVisitor):
+    def edge_score_with_bonus(self, tree: CoqGraphInterface, edge: Edge):
+        edge_score = edge.certainty
+        if edge.frm_tactic_trace == tree.tactic_trace() and self._args.cur_node_bonus_type != 'none':
+            bonus = self._args.cur_node_bonus
+            if self._args.cur_node_bonus_type == 'multiplicative':
+                edge_score *= bonus
+            elif self._args.bonus_type == 'additive':
+                edge_score += bonus
+            else:
+                raise NotImplementedError(f"Unknown bonus type {self._args.bonus_type}")
+        return edge_score
+
+    def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
+        return max(range(len(leaf_edges)), key=lambda i: self.edge_score_with_bonus(tree, leaf_edges[i]))
 
 class CoqVisitorDfsThenProductCertainty(CoqVisitor):
     def _eval_edge(self, tree: CoqGraphInterface, edge: Edge):
