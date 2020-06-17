@@ -17,8 +17,6 @@ def init_logger(init_args):
     global __git_patch_filename
     __init_params = init_args
     __run_id += ''.join(random.choice(string.digits + string.ascii_letters) for _ in range(6))
-    neptune.init('rashchedrin/Proverbot9001',
-                 api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vdWkubmVwdHVuZS5haSIsImFwaV91cmwiOiJodHRwczovL3VpLm5lcHR1bmUuYWkiLCJhcGlfa2V5IjoiY2NiNTk1NWItOTQ0MS00ODdhLWE3N2MtMjE4ZDY2OGQ2MmZmIn0=")
     __git_patch_filename = __run_id + ".git_diff"
     os.system("git diff > " + __git_patch_filename)
 
@@ -33,6 +31,8 @@ def dict_digest(d: Dict):
 def set_experiment(name: str, experiment_parameters: Dict[str, str], tags: Optional[List] = None):
     global __init_params
     global __run_id
+    neptune.init('rashchedrin/Proverbot9001',
+                 api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vdWkubmVwdHVuZS5haSIsImFwaV91cmwiOiJodHRwczovL3VpLm5lcHR1bmUuYWkiLCJhcGlfa2V5IjoiY2NiNTk1NWItOTQ0MS00ODdhLWE3N2MtMjE4ZDY2OGQ2MmZmIn0=")
     all_params = {}
     all_params.update(__init_params)
     all_params.update(experiment_parameters)
