@@ -270,6 +270,7 @@ def parse_arguments(args_list: List[str]) -> Tuple[argparse.Namespace,
     parser.add_argument('--cur-node-bonus-type', choices=["additive", "multiplicative", "none"],
                         default="none", dest='cur_node_bonus_type')
     parser.add_argument("--certainty-bias", type=float, dest='certainty_bias', default='0.0')
+    parser.add_argument("--coef-extra-depth-bonus", type=float, dest='coef_extra_depth_bonus', default='0.0')
     known_args, unknown_args = parser.parse_known_args(args_list)
     return known_args, parser
 

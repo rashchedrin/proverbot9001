@@ -189,7 +189,7 @@ class CoqGraphInterface(GraphInterface):
         predictions, certainties = predict_k_tactics(self._coq, self._args, self._args.max_attempts)
         certainties = np.array(certainties) + self._certainty_bias
         if self._temperature != 1.0:
-            certainties = (softmax(np.exp(certainties)/self._temperature) + self._certainty_bias)
+            certainties = (softmax(np.exp(certainties) / self._temperature) + self._certainty_bias)
         certainties = certainties.tolist()
         pred_spent = time.time() - pred_start
         self.time_spent_in_predictor += pred_spent
@@ -429,7 +429,9 @@ class CoqVisitorCertaintyEdgeScore(CoqVisitor):
 
 class CoqVisitorProductCertaintyEdgeScore(CoqVisitor):
     def edge_product_certinty(self, tree: CoqGraphInterface, edge: Edge):
-        return edge.certainty * tree._tactic_trace_to_node[edge.frm_tactic_trace].certainty_product
+        return (edge.certainty * (
+                    (1 + self._args.coef_extra_depth_bonus) ** self._nodes_info[edge.frm_tactic_trace].extra_depth)) \
+               * tree._tactic_trace_to_node[edge.frm_tactic_trace].certainty_product
 
     def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
         return max(range(len(leaf_edges)), key=lambda i: self.edge_product_certinty(tree, leaf_edges[i]))
@@ -451,6 +453,7 @@ class CoqVisitorProductCertaintyWithCurNodeBonus(CoqVisitorProductCertaintyEdgeS
     def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
         return max(range(len(leaf_edges)), key=lambda i: self.edge_score_with_bonus(tree, leaf_edges[i]))
 
+
 class CoqVisitorCertaintyWithCurNodeBonus(CoqVisitor):
     def edge_score_with_bonus(self, tree: CoqGraphInterface, edge: Edge):
         edge_score = edge.certainty
@@ -467,21 +470,24 @@ class CoqVisitorCertaintyWithCurNodeBonus(CoqVisitor):
     def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
         return max(range(len(leaf_edges)), key=lambda i: self.edge_score_with_bonus(tree, leaf_edges[i]))
 
+
 class CoqVisitorDfsThenProductCertainty(CoqVisitor):
     def _eval_edge(self, tree: CoqGraphInterface, edge: Edge):
         return edge.certainty * tree._tactic_trace_to_node[edge.frm_tactic_trace].certainty_product
 
     def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
         if time.time() < 5.0 + self._creation_time:
-            return len(leaf_edges) - 1 # DFS
+            return len(leaf_edges) - 1  # DFS
         else:
-            self._args.search_depth = 99999 # remove tree shape constraints, and switch to BestFS
+            self._args.search_depth = 99999  # remove tree shape constraints, and switch to BestFS
             self._args.search_width = 99999
             return max(range(len(leaf_edges)), key=lambda i: self._eval_edge(tree, leaf_edges[i]))
+
 
 class CoqVisitorDfs(CoqVisitor):
     def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
         return len(leaf_edges) - 1
+
 
 def interpret_traverse_output(command_list: Optional[List], has_unexplored_node: bool) -> SearchResult:
     if command_list:
@@ -530,9 +536,9 @@ def proof_search_with_graph_visitor(lemma_statement: str,
                              f"{search_file.unnamed_goal_number}"
     else:
         svg_graph_filename = f"{args.output_dir}/{module_prefix}{lemma_name}"
-    g.draw(svg_graph_filename+".svg")
-    g.draw(svg_graph_filename+".png")
-    logger.log_image("search_graph", svg_graph_filename+".png")
+    g.draw(svg_graph_filename + ".svg")
+    g.draw(svg_graph_filename + ".png")
+    logger.log_image("search_graph", svg_graph_filename + ".png")
     metrics = extract_metrics_dict(graph_interface, result, time_spent, visitor)
     return result, metrics
 
