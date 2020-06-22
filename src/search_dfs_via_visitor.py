@@ -288,7 +288,7 @@ class CoqVisitor(BestFirstSearchVisitor):
         self._pbar = pbar
         self._num_successful_predictions = defaultdict(int)
         self._vis_graph = vis_graph
-        self._args = args
+        self._args = argparse.Namespace(**vars(args))
         self._nodes_info: Dict[Tuple, CoqVisitor.NodeInfo] = \
             {initial_tactic_trace: CoqVisitor.NodeInfo(extra_depth=0,
                                                        subgoal_distance_stack=[],
