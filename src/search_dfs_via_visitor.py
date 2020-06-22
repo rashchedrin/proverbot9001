@@ -471,18 +471,14 @@ class CoqVisitorCertaintyWithCurNodeBonus(CoqVisitor):
         return max(range(len(leaf_edges)), key=lambda i: self.edge_score_with_bonus(tree, leaf_edges[i]))
 
 
-class CoqVisitorDfsThenProductCertainty(CoqVisitor):
-    def _eval_edge(self, tree: CoqGraphInterface, edge: Edge):
-        return edge.certainty * tree._tactic_trace_to_node[edge.frm_tactic_trace].certainty_product
-
+class CoqVisitorDfsThenProductCertainty(CoqVisitorProductCertaintyEdgeScore):
     def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
-        if time.time() < 5.0 + self._creation_time:
+        if self.total_nodes_visited < self._args.spend_first_n_nodes_on_dfs:
             return len(leaf_edges) - 1  # DFS
         else:
             self._args.search_depth = 99999  # remove tree shape constraints, and switch to BestFS
             self._args.search_width = 99999
-            return max(range(len(leaf_edges)), key=lambda i: self._eval_edge(tree, leaf_edges[i]))
-
+            return max(range(len(leaf_edges)), key=lambda i: self.edge_product_certinty(tree, leaf_edges[i]))
 
 class CoqVisitorDfs(CoqVisitor):
     def edge_picker(self, tree: CoqGraphInterface, leaf_edges: List[Edge]) -> int:
